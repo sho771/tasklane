@@ -1,0 +1,25 @@
+{
+  "name": "taskkanri-desktop",
+  "version": "0.1.0",
+  "description": "Desktop task manager with Gantt chart built with Electron + React",
+  "main": "electron/main.cjs",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.0.1",
+    "electron": "^36.2.1",
+    "vite": "^7.0.0",
+    "wait-on": "^8.0.1"
+  }
+}
