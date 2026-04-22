@@ -1,7 +1,26 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 
-const isDev = !app.isPackaged;
+function getDevUrlFromArgs() {
+  const arg = process.argv.find((item) => item.startsWith('--dev-url='));
+  if (!arg) {
+    return null;
+  }
+  const value = arg.slice('--dev-url='.length).trim();
+  return value || null;
+}
+
+function getRendererEntry() {
+  const devUrl = getDevUrlFromArgs();
+  if (devUrl) {
+    return { type: 'url', value: devUrl };
+  }
+
+  return {
+    type: 'file',
+    value: path.join(__dirname, '..', 'dist', 'index.html')
+  };
+}
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -17,11 +36,12 @@ function createWindow() {
     }
   });
 
-  if (isDev) {
-    mainWindow.loadURL('http://127.0.0.1:5173');
+  const rendererEntry = getRendererEntry();
+  if (rendererEntry.type === 'url') {
+    mainWindow.loadURL(rendererEntry.value);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    mainWindow.loadFile(rendererEntry.value);
   }
 }
 
