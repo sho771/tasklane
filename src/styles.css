@@ -96,24 +96,129 @@ body.split-dragging {
   background: rgba(254, 255, 251, 0.86);
   display: flex;
   align-items: center;
+  overflow: visible;
+  position: relative;
+  z-index: 4;
+}
+
+.toolbar-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .task-add-btn {
   cursor: pointer;
-  height: 36px;
-  min-width: 112px;
+  height: 34px;
+  min-width: 96px;
   border-radius: 9px;
   border: none;
   background: linear-gradient(120deg, #347f6f, #245d64);
   color: #eef9f7;
   font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.menu-anchor {
+  position: relative;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.menu-trigger {
+  cursor: pointer;
+  height: 34px;
+  width: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(42, 65, 69, 0.2);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.toolbar-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(42, 65, 69, 0.18);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 10px 26px rgba(25, 42, 47, 0.2);
+  z-index: 40;
+}
+
+.menu-vault {
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(42, 65, 69, 0.12);
+}
+
+.menu-action-btn {
+  cursor: pointer;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(42, 65, 69, 0.2);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  padding: 0 10px;
+}
+
+.menu-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.menu-action-btn.danger {
+  border-color: rgba(154, 58, 58, 0.28);
+  background: rgba(244, 220, 220, 0.9);
+  color: #7e2f2f;
+}
+
+.vault-chip {
+  height: 30px;
+  border-radius: 999px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(47, 143, 121, 0.14);
+  color: #245b52;
+  font-size: 0.74rem;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.vault-chip.muted {
+  background: rgba(93, 110, 116, 0.12);
+  color: #5f7277;
+}
+
+.vault-status {
+  font-size: 0.74rem;
+  color: #4b6469;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.vault-status.inline-status {
+  margin-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .task-controls input,
 .task-controls select,
 .task-modal input,
-.task-modal select,
-.task-modal textarea {
+.task-modal select {
   border-radius: 8px;
   border: 1px solid rgba(27, 40, 41, 0.2);
   background: rgba(255, 255, 255, 0.88);
@@ -127,6 +232,8 @@ body.split-dragging {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  position: relative;
+  z-index: 1;
 }
 
 .task-list-inner {
@@ -140,6 +247,34 @@ body.split-dragging {
   flex-direction: column;
   justify-content: center;
   gap: 6px;
+}
+
+.task-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.group-chip,
+.uid-chip {
+  height: 18px;
+  border-radius: 999px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
+
+.group-chip {
+  background: rgba(47, 143, 121, 0.16);
+  color: #285e56;
+}
+
+.uid-chip {
+  background: rgba(52, 79, 127, 0.14);
+  color: #334f77;
+  font-family: 'IBM Plex Mono', 'Consolas', monospace;
 }
 
 .task-title-line {
@@ -432,6 +567,21 @@ body.split-dragging {
 .modal-grid label span {
   font-size: 0.76rem;
   color: #52676a;
+}
+
+.modal-field-date input {
+  max-width: 148px;
+}
+
+.modal-field-progress input {
+  max-width: 64px;
+}
+
+.modal-field-uid input {
+  max-width: 170px;
+  font-family: 'IBM Plex Mono', 'Consolas', monospace;
+  letter-spacing: 0.03em;
+  background: rgba(243, 246, 247, 0.95);
 }
 
 .markdown-section {
