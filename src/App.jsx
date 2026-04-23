@@ -11,12 +11,26 @@ import {
 import '@mdxeditor/editor/style.css';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const ROW_HEIGHT = 96;
+const ROW_HEIGHT = 52;
+const BAR_HEIGHT = 30;
 const COL_WIDTH = 36;
 const STORAGE_KEY = 'taskkanri.desktop.v1';
 const SPLIT_KEY = 'taskkanri.desktop.splitWidth.v1';
 const VAULT_PATH_KEY = 'taskkanri.desktop.vaultPath.v1';
+const TAG_COLORS_KEY = 'taskkanri.desktop.tagColors.v1';
+const LEGACY_GROUP_COLORS_KEY = 'taskkanri.desktop.groupColors.v1';
 const IMPORT_TAG = '#task';
+const UNTAGGED_KEY = '__untagged__';
+const STATUS_OPTIONS = [
+  { value: 'todo', label: '未着手' },
+  { value: 'doing', label: '処理中' },
+  { value: 'done', label: '完了' }
+];
+const STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'open', label: '完了以外' },
+  ...STATUS_OPTIONS
+];
 
 function startOfDay(input) {
   const date = new Date(input);
@@ -72,31 +86,37 @@ function sampleTasks() {
     {
       id: 1,
       name: 'Planning',
+      status: 'doing',
       start: toDateKey(addDays(today, -3)),
       end: toDateKey(addDays(today, 1)),
       progress: 85,
       parentId: null,
       dependsOn: [],
+      tags: ['task/core'],
       markdown: '## Goal\nPlan the milestone and execution order.\n\n- Confirm scope\n- Confirm owner'
     },
     {
       id: 2,
       name: 'UI Draft',
+      status: 'doing',
       start: toDateKey(addDays(today, 0)),
       end: toDateKey(addDays(today, 5)),
       progress: 50,
       parentId: 1,
       dependsOn: [1],
+      tags: ['task/core/ui'],
       markdown: 'Create first interactive mockups.\n\nReview with the team on Friday.'
     },
     {
       id: 3,
       name: 'Integration',
+      status: 'todo',
       start: toDateKey(addDays(today, 6)),
       end: toDateKey(addDays(today, 11)),
       progress: 15,
       parentId: 1,
       dependsOn: [2],
+      tags: ['task/release'],
       markdown: 'Wire API and desktop packaging.'
     }
   ];
@@ -108,12 +128,14 @@ function normalizeTask(rawTask, fallbackId) {
   const endCandidate = rawTask.end && /^\d{4}-\d{2}-\d{2}$/.test(rawTask.end) ? rawTask.end : start;
   const safeEnd = parseDateKey(endCandidate) < parseDateKey(start) ? start : endCandidate;
   const progress = clamp(Number(rawTask.progress) || 0, 0, 100);
+  const normalizedStatus = normalizeStatus(rawTask.status, progress);
+  const safeProgress = normalizedStatus === 'done' ? 100 : progress;
+  const status = normalizeStatus(rawTask.status, safeProgress);
   const parentId = rawTask.parentId == null ? null : Number(rawTask.parentId);
   const dependsOn = Array.isArray(rawTask.dependsOn)
     ? [...new Set(rawTask.dependsOn.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0 && value !== id))]
     : [];
   const uid = normalizeUid(rawTask.uid);
-  const group = normalizeGroup(rawTask.group);
   const tags = normalizeTags(rawTask.tags);
 
   return {
@@ -121,9 +143,9 @@ function normalizeTask(rawTask, fallbackId) {
     name: typeof rawTask.name === 'string' && rawTask.name.trim() ? rawTask.name : `Task ${id}`,
     start,
     end: safeEnd,
-    progress,
+    progress: safeProgress,
+    status,
     uid,
-    group,
     parentId: Number.isInteger(parentId) && parentId > 0 && parentId !== id ? parentId : null,
     dependsOn,
     tags,
@@ -159,6 +181,161 @@ function loadInitialSplitWidth() {
     return fallback;
   }
   return parsed;
+}
+
+function normalizeHexColor(raw) {
+  const value = String(raw || '').trim();
+  if (/^#[\da-f]{6}$/i.test(value)) {
+    return value.toLowerCase();
+  }
+  if (/^#[\da-f]{3}$/i.test(value)) {
+    const r = value[1];
+    const g = value[2];
+    const b = value[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return '';
+}
+
+function normalizeTagPath(rawTagPath) {
+  const value = String(rawTagPath || '')
+    .trim()
+    .replace(/^#+/, '')
+    .replace(/\/+/g, '/')
+    .replace(/^\/|\/$/g, '');
+  return value || UNTAGGED_KEY;
+}
+
+function loadInitialTagColors() {
+  try {
+    const raw = localStorage.getItem(TAG_COLORS_KEY) || localStorage.getItem(LEGACY_GROUP_COLORS_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .map(([tagPath, color]) => [normalizeTagPath(tagPath), normalizeHexColor(color)])
+        .filter(([, color]) => Boolean(color))
+    );
+  } catch {
+    return {};
+  }
+}
+
+function hexToRgb(hexColor) {
+  const hex = normalizeHexColor(hexColor);
+  if (!hex) {
+    return null;
+  }
+  return {
+    r: Number.parseInt(hex.slice(1, 3), 16),
+    g: Number.parseInt(hex.slice(3, 5), 16),
+    b: Number.parseInt(hex.slice(5, 7), 16)
+  };
+}
+
+function rgbToHex(r, g, b) {
+  const toHex = (value) => clamp(Math.round(value), 0, 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function mixHex(baseHex, mixWithHex, mixRatio) {
+  const base = hexToRgb(baseHex);
+  const target = hexToRgb(mixWithHex);
+  if (!base || !target) {
+    return '#8ecab5';
+  }
+  const ratio = clamp(Number(mixRatio) || 0, 0, 1);
+  return rgbToHex(
+    base.r * (1 - ratio) + target.r * ratio,
+    base.g * (1 - ratio) + target.g * ratio,
+    base.b * (1 - ratio) + target.b * ratio
+  );
+}
+
+function hexToRgba(hexColor, alpha = 1) {
+  const rgb = hexToRgb(hexColor);
+  if (!rgb) {
+    return 'rgba(47, 143, 121, 0.26)';
+  }
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${clamp(Number(alpha) || 0, 0, 1)})`;
+}
+
+function hslToHex(h, s, l) {
+  const hue = ((Number(h) % 360) + 360) % 360;
+  const sat = clamp(Number(s) / 100, 0, 1);
+  const lig = clamp(Number(l) / 100, 0, 1);
+  const c = (1 - Math.abs((2 * lig) - 1)) * sat;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = lig - (c / 2);
+
+  let r = 0;
+  let g = 0;
+  let b = 0;
+
+  if (hue < 60) {
+    r = c;
+    g = x;
+  } else if (hue < 120) {
+    r = x;
+    g = c;
+  } else if (hue < 180) {
+    g = c;
+    b = x;
+  } else if (hue < 240) {
+    g = x;
+    b = c;
+  } else if (hue < 300) {
+    r = x;
+    b = c;
+  } else {
+    r = c;
+    b = x;
+  }
+
+  return rgbToHex((r + m) * 255, (g + m) * 255, (b + m) * 255);
+}
+
+function rgbToHsl(r, g, b) {
+  const red = clamp(Number(r), 0, 255) / 255;
+  const green = clamp(Number(g), 0, 255) / 255;
+  const blue = clamp(Number(b), 0, 255) / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+  const lightness = (max + min) / 2;
+  let hue = 0;
+  let saturation = 0;
+
+  if (delta !== 0) {
+    saturation = delta / (1 - Math.abs((2 * lightness) - 1));
+    if (max === red) {
+      hue = 60 * (((green - blue) / delta) % 6);
+    } else if (max === green) {
+      hue = 60 * (((blue - red) / delta) + 2);
+    } else {
+      hue = 60 * (((red - green) / delta) + 4);
+    }
+  }
+
+  return {
+    h: (hue + 360) % 360,
+    s: saturation * 100,
+    l: lightness * 100
+  };
+}
+
+function complementHex(hexColor) {
+  const rgb = hexToRgb(hexColor);
+  if (!rgb) {
+    return '#c45f2c';
+  }
+  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+  return hslToHex((hsl.h + 180) % 360, hsl.s, hsl.l);
 }
 
 function toDependsText(dependsOn) {
@@ -213,7 +390,7 @@ function buildTaskMarkdown(task) {
     `id: ${task.id}`,
     `uid: ${quoteMetaValue(task.uid || '')}`,
     `name: ${quoteMetaValue(task.name)}`,
-    `group: ${quoteMetaValue(normalizeGroup(task.group))}`,
+    `status: ${quoteMetaValue(normalizeStatus(task.status, task.progress))}`,
     `start: ${task.start}`,
     `end: ${task.end}`,
     `progress: ${clamp(Number(task.progress) || 0, 0, 100)}`,
@@ -332,9 +509,71 @@ function normalizeUid(rawUid) {
   return /^\d{14}$/.test(value) ? value : '';
 }
 
-function normalizeGroup(rawGroup) {
-  const value = String(rawGroup || '').trim();
-  return value || 'General';
+function normalizeStatus(rawStatus, progress = 0) {
+  const value = String(rawStatus || '').trim().toLowerCase();
+  if (value === 'todo' || value === 'doing' || value === 'done') {
+    return value;
+  }
+  if (value === '未着手') {
+    return 'todo';
+  }
+  if (value === '処理中') {
+    return 'doing';
+  }
+  if (value === '完了') {
+    return 'done';
+  }
+  if (Number(progress) >= 100) {
+    return 'done';
+  }
+  if (Number(progress) > 0) {
+    return 'doing';
+  }
+  return 'todo';
+}
+
+function statusLabel(status) {
+  return STATUS_OPTIONS.find((item) => item.value === status)?.label || '未着手';
+}
+
+function statusProgressValue(status, fallbackProgress = 0) {
+  if (status === 'todo') {
+    return 0;
+  }
+  if (status === 'doing') {
+    return 50;
+  }
+  if (status === 'done') {
+    return 100;
+  }
+  return clamp(Number(fallbackProgress) || 0, 0, 100);
+}
+
+function createPaletteFromBaseHex(baseHex) {
+  const normalized = normalizeHexColor(baseHex) || '#8ecab5';
+  return {
+    baseHex: normalized,
+    soft: mixHex(normalized, '#ffffff', 0.8),
+    base: normalized,
+    strong: mixHex(normalized, '#1d2f33', 0.38),
+    fill: hexToRgba(normalized, 0.26)
+  };
+}
+
+function getTagPalette(tagPath, tagColors = {}) {
+  const key = normalizeTagPath(tagPath);
+  const customColor = normalizeHexColor(tagColors[key]);
+  if (customColor) {
+    return createPaletteFromBaseHex(customColor);
+  }
+
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = ((hash << 5) - hash) + key.charCodeAt(index);
+    hash |= 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  return createPaletteFromBaseHex(hslToHex(hue, 54, 54));
 }
 
 function normalizeTags(rawTags) {
@@ -368,6 +607,45 @@ function parseTagsInput(raw) {
     return normalizeTags(hashTags.map((tag) => tag.replace(/^#/, '')));
   }
   return normalizeTags(text.split(/[,\s]+/));
+}
+
+function getPrimaryTagPath(task) {
+  const tags = normalizeTags(task?.tags);
+  return tags.length > 0 ? normalizeTagPath(tags[0]) : UNTAGGED_KEY;
+}
+
+function tagLabel(tagPath) {
+  if (tagPath === UNTAGGED_KEY) {
+    return '(No Tag)';
+  }
+  return `#${tagPath}`;
+}
+
+function tagDepth(tagPath) {
+  if (!tagPath || tagPath === UNTAGGED_KEY) {
+    return 0;
+  }
+  return tagPath.split('/').filter(Boolean).length - 1;
+}
+
+function compareTagPath(a, b) {
+  if (a === UNTAGGED_KEY && b !== UNTAGGED_KEY) {
+    return 1;
+  }
+  if (a !== UNTAGGED_KEY && b === UNTAGGED_KEY) {
+    return -1;
+  }
+  return a.localeCompare(b, 'ja');
+}
+
+function isTagPathMatch(targetPath, filterPath) {
+  if (filterPath === 'all') {
+    return true;
+  }
+  if (filterPath === UNTAGGED_KEY) {
+    return targetPath === UNTAGGED_KEY;
+  }
+  return targetPath === filterPath || targetPath.startsWith(`${filterPath}/`);
 }
 
 function parseDateFromLooseText(text) {
@@ -417,8 +695,8 @@ function parseChecklistTaskLine(line, relativePath, lineNumber) {
     start,
     end,
     progress: isDone ? 100 : 0,
+    status: isDone ? 'done' : 'todo',
     uid: '',
-    group: 'Inbox',
     parentId: null,
     dependsOn: [],
     tags: tagsFromLine,
@@ -460,8 +738,8 @@ function parseTaskFromMarkdownNote(content, relativePath) {
   const start = typeof meta.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.start) ? meta.start : toDateKey(new Date());
   const end = typeof meta.end === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.end) ? meta.end : toDateKey(addDays(start, 2));
   const progress = clamp(Number(meta.progress) || 0, 0, 100);
+  const status = normalizeStatus(meta.status, progress);
   const uid = normalizeUid(meta.uid);
-  const group = normalizeGroup(meta.group);
   const parentRaw = Number(meta.parentId);
   const parentId = Number.isInteger(parentRaw) && parentRaw > 0 && parentRaw !== id ? parentRaw : null;
   const dependsOn = parseDependsMeta(meta.dependsOn, id);
@@ -473,8 +751,8 @@ function parseTaskFromMarkdownNote(content, relativePath) {
     start,
     end,
     progress,
+    status,
     uid,
-    group,
     parentId,
     dependsOn,
     tags,
@@ -574,6 +852,14 @@ function App() {
   const [vaultStatus, setVaultStatus] = useState('');
   const [isVaultBusy, setIsVaultBusy] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showLightning, setShowLightning] = useState(true);
+  const [tagColors, setTagColors] = useState(() => loadInitialTagColors());
+  const [collapsedTags, setCollapsedTags] = useState({});
+  const [filters, setFilters] = useState({
+    status: 'all',
+    dueBy: '',
+    tag: 'all'
+  });
 
   const idRef = useRef(tasks.reduce((max, task) => Math.max(max, task.id), 0) + 1);
   const headerScrollRef = useRef(null);
@@ -612,6 +898,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(VAULT_PATH_KEY, vaultPath);
   }, [vaultPath]);
+
+  useEffect(() => {
+    localStorage.setItem(TAG_COLORS_KEY, JSON.stringify(tagColors));
+  }, [tagColors]);
 
   useEffect(() => () => {
     if (statusTimerRef.current) {
@@ -712,43 +1002,263 @@ function App() {
     };
   }, [tasks]);
 
-  const orderedTasks = useMemo(() => (
-    [...tasks].sort((a, b) => {
-      const groupCompare = normalizeGroup(a.group).localeCompare(normalizeGroup(b.group), 'ja');
-      if (groupCompare !== 0) {
-        return groupCompare;
+  const monthSegments = useMemo(() => {
+    const segments = [];
+    let index = 0;
+    while (index < timeline.days) {
+      const date = addDays(timeline.start, index);
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      let days = 1;
+      while (index + days < timeline.days) {
+        const nextDate = addDays(timeline.start, index + days);
+        if (nextDate.getFullYear() !== year || nextDate.getMonth() !== month) {
+          break;
+        }
+        days += 1;
       }
 
+      segments.push({
+        key: `${year}-${month + 1}`,
+        label: `${year}/${String(month + 1).padStart(2, '0')}`,
+        width: days * COL_WIDTH
+      });
+      index += days;
+    }
+
+    return segments;
+  }, [timeline.days, timeline.start]);
+
+  const orderedTasks = useMemo(() => (
+    [...tasks].sort((a, b) => {
       const startCompare = parseDateKey(a.start).getTime() - parseDateKey(b.start).getTime();
       if (startCompare !== 0) {
         return startCompare;
+      }
+
+      const endCompare = parseDateKey(a.end).getTime() - parseDateKey(b.end).getTime();
+      if (endCompare !== 0) {
+        return endCompare;
       }
 
       return a.id - b.id;
     })
   ), [tasks]);
 
-  const chartHeight = Math.max(orderedTasks.length * ROW_HEIGHT, ROW_HEIGHT * 2);
+  const tagPaths = useMemo(() => {
+    const paths = new Set();
+    orderedTasks.forEach((task) => {
+      const primaryPath = getPrimaryTagPath(task);
+      if (primaryPath === UNTAGGED_KEY) {
+        paths.add(UNTAGGED_KEY);
+        return;
+      }
+
+      const parts = primaryPath.split('/').filter(Boolean);
+      let current = '';
+      parts.forEach((part) => {
+        current = current ? `${current}/${part}` : part;
+        paths.add(current);
+      });
+    });
+    return [...paths].sort(compareTagPath);
+  }, [orderedTasks]);
+
+  const tagOptions = useMemo(() => (
+    tagPaths.filter((path) => path !== UNTAGGED_KEY && path.split('/').length === 1)
+  ), [tagPaths]);
+
+  useEffect(() => {
+    setCollapsedTags((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      tagPaths.forEach((tagPath) => {
+        if (!(tagPath in next)) {
+          next[tagPath] = false;
+          changed = true;
+        }
+      });
+      Object.keys(next).forEach((tagPath) => {
+        if (!tagPaths.includes(tagPath)) {
+          delete next[tagPath];
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [tagPaths]);
+
+  useEffect(() => {
+    setFilters((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      if (next.tag !== 'all' && !tagPaths.includes(next.tag)) {
+        next.tag = 'all';
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [tagPaths]);
+
+  const filteredTasks = useMemo(() => (
+    orderedTasks.filter((task) => {
+      const status = normalizeStatus(task.status, task.progress);
+      if (filters.status === 'open' && status === 'done') {
+        return false;
+      }
+      if (filters.status !== 'all' && filters.status !== 'open' && status !== filters.status) {
+        return false;
+      }
+      const primaryTag = getPrimaryTagPath(task);
+      if (!isTagPathMatch(primaryTag, filters.tag)) {
+        return false;
+      }
+      if (filters.dueBy && task.end > filters.dueBy) {
+        return false;
+      }
+      return true;
+    })
+  ), [filters, orderedTasks]);
+
+  const visibleRows = useMemo(() => {
+    const nodeMap = new Map();
+    const rootPaths = new Set();
+
+    const ensureNode = (path) => {
+      if (!nodeMap.has(path)) {
+        nodeMap.set(path, {
+          path,
+          tasks: [],
+          children: new Set()
+        });
+      }
+      return nodeMap.get(path);
+    };
+
+    filteredTasks.forEach((task) => {
+      const primaryPath = getPrimaryTagPath(task);
+      if (primaryPath === UNTAGGED_KEY) {
+        ensureNode(UNTAGGED_KEY).tasks.push(task);
+        rootPaths.add(UNTAGGED_KEY);
+        return;
+      }
+
+      const parts = primaryPath.split('/').filter(Boolean);
+      let parentPath = '';
+      parts.forEach((part, index) => {
+        const currentPath = parentPath ? `${parentPath}/${part}` : part;
+        ensureNode(currentPath);
+        if (index === 0) {
+          rootPaths.add(currentPath);
+        }
+        if (parentPath) {
+          ensureNode(parentPath).children.add(currentPath);
+        }
+        parentPath = currentPath;
+      });
+
+      ensureNode(primaryPath).tasks.push(task);
+    });
+
+    const countMemo = new Map();
+    const subtreeCount = (path) => {
+      if (countMemo.has(path)) {
+        return countMemo.get(path);
+      }
+      const node = nodeMap.get(path);
+      if (!node) {
+        return 0;
+      }
+      let count = node.tasks.length;
+      [...node.children].forEach((childPath) => {
+        count += subtreeCount(childPath);
+      });
+      countMemo.set(path, count);
+      return count;
+    };
+
+    const rows = [];
+
+    const walk = (path) => {
+      const node = nodeMap.get(path);
+      if (!node) {
+        return;
+      }
+
+      const palette = getTagPalette(path, tagColors);
+      const collapsed = Boolean(collapsedTags[path]);
+      rows.push({
+        type: 'group',
+        group: path,
+        label: tagLabel(path),
+        level: tagDepth(path),
+        palette,
+        count: subtreeCount(path),
+        collapsed
+      });
+
+      if (!collapsed) {
+        node.tasks.forEach((task) => {
+          rows.push({
+            type: 'task',
+            task,
+            group: path,
+            level: tagDepth(path),
+            palette
+          });
+        });
+        [...node.children]
+          .sort(compareTagPath)
+          .forEach((childPath) => walk(childPath));
+      }
+    };
+
+    [...rootPaths]
+      .sort(compareTagPath)
+      .forEach((path) => walk(path));
+
+    return rows;
+  }, [collapsedTags, filteredTasks, tagColors]);
+
+  const visibleTasks = useMemo(() => (
+    visibleRows.filter((row) => row.type === 'task').map((row) => row.task)
+  ), [visibleRows]);
+
+  const rowIndexByTaskId = useMemo(() => {
+    const map = new Map();
+    visibleRows.forEach((row, index) => {
+      if (row.type === 'task') {
+        map.set(row.task.id, index);
+      }
+    });
+    return map;
+  }, [visibleRows]);
+
+  const chartHeight = Math.max(visibleRows.length * ROW_HEIGHT, ROW_HEIGHT * 2);
 
   const geometry = useMemo(() => {
     const positions = new Map();
-    orderedTasks.forEach((task, index) => {
+    visibleTasks.forEach((task) => {
+      const rowIndex = rowIndexByTaskId.get(task.id);
+      if (rowIndex == null) {
+        return;
+      }
       const startOffset = daysBetween(timeline.start, task.start);
       const duration = Math.max(1, daysBetween(task.start, task.end) + 1);
       const startX = startOffset * COL_WIDTH + 3;
       const width = Math.max(12, duration * COL_WIDTH - 6);
       const endX = startX + width;
-      const centerY = index * ROW_HEIGHT + ROW_HEIGHT / 2;
+      const centerY = rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
       positions.set(task.id, {
         startX,
         endX,
         centerY,
         width,
-        top: index * ROW_HEIGHT + 14
+        top: rowIndex * ROW_HEIGHT + ((ROW_HEIGHT - BAR_HEIGHT) / 2)
       });
     });
     return positions;
-  }, [orderedTasks, timeline.start]);
+  }, [rowIndexByTaskId, timeline.start, visibleTasks]);
 
   useEffect(() => {
     const chartNode = chartScrollRef.current;
@@ -797,15 +1307,23 @@ function App() {
         return task;
       }
 
-      const next = typeof updater === 'function' ? updater(task) : { ...task, ...updater };
+      const patch = typeof updater === 'function' ? updater(task) : updater;
+      const next = { ...task, ...(patch || {}) };
       const safeStart = next.start;
       const safeEnd = parseDateKey(next.end) < parseDateKey(next.start) ? next.start : next.end;
+      const requestedStatus = normalizeStatus(next.status, next.progress);
+      const statusChanged = Boolean(patch) && Object.prototype.hasOwnProperty.call(patch, 'status');
+      const nextProgress = statusChanged
+        ? statusProgressValue(requestedStatus, next.progress)
+        : clamp(Number(next.progress) || 0, 0, 100);
+      const progressWithStatus = requestedStatus === 'done' ? 100 : nextProgress;
       return {
         ...task,
         ...next,
         start: safeStart,
         end: safeEnd,
-        progress: clamp(Number(next.progress), 0, 100)
+        progress: progressWithStatus,
+        status: normalizeStatus(next.status, progressWithStatus)
       };
     }));
   };
@@ -843,21 +1361,34 @@ function App() {
     const uid = createUid();
     const start = toDateKey(new Date());
     const end = toDateKey(addDays(start, 2));
+    const initialStatus = (filters.status === 'done' || filters.status === 'doing' || filters.status === 'todo')
+      ? filters.status
+      : 'todo';
+    const initialTags = filters.tag === 'all'
+      ? ['task']
+      : (filters.tag === UNTAGGED_KEY ? [] : [filters.tag]);
 
     addTaskAt({
       name: `Task ${id}`,
       uid,
-      group: 'General',
+      status: initialStatus,
       start,
       end,
-      progress: 0,
+      progress: statusProgressValue(initialStatus, 0),
       parentId: null,
       dependsOn: [],
-      tags: ['task'],
+      tags: initialTags,
       markdown: ''
     });
 
     setModalTaskId(id);
+  };
+
+  const toggleGroupCollapsed = (group) => {
+    setCollapsedTags((prev) => ({
+      ...prev,
+      [group]: !prev[group]
+    }));
   };
 
   const handleDisconnectVault = () => {
@@ -1244,30 +1775,35 @@ function App() {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const dayOffset = clamp(Math.floor(x / COL_WIDTH), 0, timeline.days - 1);
-    const row = clamp(Math.floor(y / ROW_HEIGHT), 0, orderedTasks.length);
+    const row = clamp(Math.floor(y / ROW_HEIGHT), 0, Math.max(visibleRows.length - 1, 0));
     const uid = createUid();
     const start = toDateKey(addDays(timeline.start, dayOffset));
     const end = toDateKey(addDays(start, 2));
+    const targetRow = visibleRows[row] || null;
+    const fallbackTag = filters.tag !== 'all'
+      ? filters.tag
+      : (targetRow?.group || tagOptions[0] || 'task');
+    const fallbackTags = fallbackTag === UNTAGGED_KEY ? [] : [fallbackTag];
 
     addTaskAt({
       name: `Task ${idRef.current}`,
       uid,
-      group: 'General',
+      status: 'todo',
       start,
       end,
       progress: 0,
       parentId: null,
       dependsOn: [],
-      tags: ['task'],
+      tags: fallbackTags,
       markdown: ''
-    }, row);
+    });
   };
 
   const relationPaths = useMemo(() => {
     const dependencies = [];
     const parents = [];
 
-    orderedTasks.forEach((task) => {
+    visibleTasks.forEach((task) => {
       const current = geometry.get(task.id);
       if (!current) {
         return;
@@ -1284,7 +1820,11 @@ function App() {
         const x2 = current.startX - 5;
         const y2 = current.centerY;
         const elbowX = x1 + Math.max(16, (x2 - x1) / 2);
-        dependencies.push(`M${x1},${y1} L${elbowX},${y1} L${elbowX},${y2} L${x2},${y2}`);
+        const tagBase = getTagPalette(getPrimaryTagPath(task), tagColors).baseHex;
+        dependencies.push({
+          path: `M${x1},${y1} L${elbowX},${y1} L${elbowX},${y2} L${x2},${y2}`,
+          color: complementHex(tagBase)
+        });
       });
 
       if (task.parentId) {
@@ -1297,23 +1837,72 @@ function App() {
     });
 
     return { dependencies, parents };
-  }, [geometry, orderedTasks]);
+  }, [geometry, tagColors, visibleTasks]);
 
-  const progressPolyline = useMemo(() => {
-    const points = orderedTasks
-      .map((task) => {
-        const position = geometry.get(task.id);
-        if (!position) {
+  const lightningData = useMemo(() => {
+    const taskPoints = new Map();
+    const pointsByTag = new Map();
+
+    visibleTasks.forEach((task) => {
+      const position = geometry.get(task.id);
+      if (!position) {
+        return;
+      }
+
+      const point = {
+        taskId: task.id,
+        tagPath: getPrimaryTagPath(task),
+        x: position.startX + ((position.endX - position.startX) * task.progress) / 100,
+        y: position.centerY
+      };
+      taskPoints.set(task.id, point);
+      if (!pointsByTag.has(point.tagPath)) {
+        pointsByTag.set(point.tagPath, []);
+      }
+      pointsByTag.get(point.tagPath).push(point);
+    });
+
+    const tagPolylines = [...pointsByTag.entries()]
+      .map(([tagPath, points]) => {
+        if (points.length < 2) {
           return null;
         }
-
-        const x = position.startX + ((position.endX - position.startX) * task.progress) / 100;
-        return `${x},${position.centerY}`;
+        const ordered = [...points].sort((a, b) => a.y - b.y);
+        const palette = getTagPalette(tagPath, tagColors);
+        return {
+          tagPath,
+          points: ordered,
+          polyline: ordered.map((point) => `${point.x},${point.y}`).join(' '),
+          color: palette.strong,
+          dotColor: palette.baseHex
+        };
       })
       .filter(Boolean);
 
-    return points.join(' ');
-  }, [geometry, orderedTasks]);
+    const crossTagLines = [];
+    visibleTasks.forEach((task) => {
+      const current = taskPoints.get(task.id);
+      if (!current) {
+        return;
+      }
+      task.dependsOn.forEach((fromId) => {
+        const source = taskPoints.get(fromId);
+        if (!source || source.tagPath === current.tagPath) {
+          return;
+        }
+        crossTagLines.push({
+          key: `${fromId}-${task.id}`,
+          path: `M${source.x},${source.y} L${current.x},${current.y}`,
+          color: complementHex(getTagPalette(current.tagPath, tagColors).baseHex)
+        });
+      });
+    });
+
+    return {
+      tagPolylines,
+      crossTagLines
+    };
+  }, [geometry, tagColors, visibleTasks]);
 
   const today = toDateKey(new Date());
   const validParentOptions = (taskId) => orderedTasks.filter((candidate) => candidate.id !== taskId);
@@ -1335,6 +1924,14 @@ function App() {
               <button type="button" className="task-add-btn" onClick={handleTaskAddClick}>
                 Task Add
               </button>
+              <label className="lightning-toggle">
+                <input
+                  type="checkbox"
+                  checked={showLightning}
+                  onChange={(event) => setShowLightning(event.target.checked)}
+                />
+                <span>⚡</span>
+              </label>
               {vaultStatus && <span className="vault-status inline-status">{vaultStatus}</span>}
               <div className="menu-anchor" ref={menuRef}>
                 <button
@@ -1375,67 +1972,140 @@ function App() {
                 )}
               </div>
             </div>
+            <div className="filter-row">
+              <label className="filter-field">
+                <span>Status</span>
+                <select
+                  value={filters.status}
+                  onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
+                >
+                  {STATUS_FILTER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field filter-field-date">
+                <span>Tag</span>
+                <select
+                  value={filters.tag}
+                  onChange={(event) => setFilters((prev) => ({ ...prev, tag: event.target.value }))}
+                >
+                  <option value="all">All</option>
+                  {tagPaths.map((tagPath) => (
+                    <option key={tagPath} value={tagPath}>{tagLabel(tagPath)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field filter-field-date">
+                <span>Due</span>
+                <input
+                  type="date"
+                  value={filters.dueBy}
+                  onChange={(event) => setFilters((prev) => ({ ...prev, dueBy: event.target.value }))}
+                />
+              </label>
+              <button
+                type="button"
+                className="filter-clear-btn"
+                onClick={() => setFilters({
+                  status: 'all',
+                  dueBy: '',
+                  tag: 'all'
+                })}
+              >
+                Clear
+              </button>
+            </div>
           </div>
 
           <div className="task-scroll" ref={listScrollRef}>
             <div className="task-list-inner" style={{ minHeight: `${chartHeight}px` }}>
-              {orderedTasks.map((task) => (
-                <div className="task-row" style={{ height: `${ROW_HEIGHT}px` }} key={task.id}>
-                  <div className="task-title-line">
+              {visibleRows.length === 0 && (
+                <div className="empty-row" style={{ height: `${ROW_HEIGHT}px` }}>
+                  No tasks match the current filters.
+                </div>
+              )}
+              {visibleRows.map((row) => {
+                if (row.type === 'group') {
+                  return (
+                    <div
+                      className="group-row"
+                      style={{
+                        height: `${ROW_HEIGHT}px`,
+                        '--tag-indent': `${row.level * 12}px`,
+                        '--group-soft': row.palette.soft,
+                        '--group-base': row.palette.base,
+                        '--group-strong': row.palette.strong
+                      }}
+                      key={`group-${row.group}`}
+                    >
+                      <button
+                        type="button"
+                        className="group-toggle"
+                        onClick={() => toggleGroupCollapsed(row.group)}
+                        aria-label={`${row.collapsed ? 'Expand' : 'Collapse'} ${row.group}`}
+                      >
+                        {row.collapsed ? '▸' : '▾'}
+                      </button>
+                      <input
+                        type="color"
+                        className="group-dot-picker"
+                        value={row.palette.baseHex}
+                        onChange={(event) => {
+                          const nextColor = normalizeHexColor(event.target.value);
+                          if (!nextColor) {
+                            return;
+                          }
+                          setTagColors((prev) => ({
+                            ...prev,
+                            [row.group]: nextColor
+                          }));
+                        }}
+                        title={`${row.group} color`}
+                        aria-label={`${row.group} color`}
+                      />
+                      <strong className="group-name">{row.label}</strong>
+                      <span className="group-count">{row.count}</span>
+                    </div>
+                  );
+                }
+
+                const task = row.task;
+                const taskStatus = normalizeStatus(task.status, task.progress);
+                const isOverdue = parseDateKey(task.end) < parseDateKey(today) && taskStatus !== 'done';
+
+                return (
+                  <div
+                    className="task-row compact"
+                    style={{
+                      height: `${ROW_HEIGHT}px`,
+                      '--task-indent': `${(row.level + 1) * 12}px`,
+                      '--group-soft': row.palette.soft,
+                      '--group-base': row.palette.base,
+                      '--group-strong': row.palette.strong
+                    }}
+                    key={task.id}
+                  >
                     <button type="button" className="task-open-id" onClick={() => setModalTaskId(task.id)}>#{task.id}</button>
-                    <button type="button" className="task-open-name" onClick={() => setModalTaskId(task.id)}>{task.name}</button>
                     <button
                       type="button"
-                      className="delete-btn"
-                      onClick={() => removeTask(task.id)}
-                      aria-label={`Delete task ${task.id}`}
+                      className={`task-open-name ${isOverdue ? 'overdue' : ''}`}
+                      onClick={() => setModalTaskId(task.id)}
                     >
-                      x
+                      {task.name}
                     </button>
-                  </div>
-                  <div className="task-meta-line">
-                    <span className="group-chip">{normalizeGroup(task.group)}</span>
-                    {task.uid && <span className="uid-chip">{task.uid}</span>}
-                  </div>
-
-                  <div className="task-controls">
-                    <input
-                      type="date"
-                      value={task.start}
-                      onChange={(event) => updateTask(task.id, { start: event.target.value })}
-                    />
-                    <input
-                      type="date"
-                      value={task.end}
-                      onChange={(event) => updateTask(task.id, { end: event.target.value })}
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={task.progress}
-                      onChange={(event) => updateTask(task.id, { progress: Number(event.target.value) })}
-                    />
                     <select
-                      value={task.parentId ?? ''}
-                      onChange={(event) => updateTask(task.id, { parentId: event.target.value ? Number(event.target.value) : null })}
+                      className={`task-status-select status-${taskStatus}`}
+                      value={taskStatus}
+                      onChange={(event) => updateTask(task.id, { status: event.target.value })}
                     >
-                      <option value="">No parent</option>
-                      {validParentOptions(task.id).map((option) => (
-                        <option value={option.id} key={option.id}>#{option.id} {option.name}</option>
+                      {STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
-                    <input
-                      type="text"
-                      value={toDependsText(task.dependsOn)}
-                      placeholder="deps"
-                      onChange={(event) => updateTask(task.id, {
-                        dependsOn: parseDependsText(event.target.value, task.id)
-                      })}
-                    />
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </aside>
@@ -1453,22 +2123,35 @@ function App() {
         <section className="gantt-panel">
           <div className="timeline-head" ref={headerScrollRef}>
             <div className="timeline-inner" style={{ width: `${timeline.width}px` }}>
-              {Array.from({ length: timeline.days }).map((_, index) => {
-                const date = addDays(timeline.start, index);
-                const key = toDateKey(date);
-                const day = String(date.getDate()).padStart(2, '0');
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const isMonthTop = date.getDate() === 1 || index === 0;
-                const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-                const isToday = key === today;
-
-                return (
-                  <div className={`time-cell ${isWeekend ? 'weekend' : ''} ${isToday ? 'today' : ''}`} key={key}>
-                    <span>{day}</span>
-                    {isMonthTop && <small>{month}</small>}
+              <div className="month-row">
+                {monthSegments.map((segment) => (
+                  <div
+                    className="month-cell"
+                    key={segment.key}
+                    style={{ width: `${segment.width}px` }}
+                  >
+                    {segment.label}
                   </div>
-                );
-              })}
+                ))}
+              </div>
+              <div className="day-row">
+                {Array.from({ length: timeline.days }).map((_, index) => {
+                  const date = addDays(timeline.start, index);
+                  const key = toDateKey(date);
+                  const day = String(date.getDate()).padStart(2, '0');
+                  const weekday = date.getDay();
+                  const dayClass = weekday === 0
+                    ? 'sun'
+                    : (weekday === 6 ? 'sat' : '');
+                  const isToday = key === today;
+
+                  return (
+                    <div className={`day-cell ${dayClass} ${isToday ? 'today' : ''}`} key={key}>
+                      {day}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -1484,27 +2167,58 @@ function App() {
               }}
               onDoubleClick={handleChartDoubleClick}
             >
-              {orderedTasks.map((task, index) => {
+              {visibleRows.map((row, index) => {
+                if (row.type !== 'group') {
+                  return null;
+                }
+
+                return (
+                  <div
+                    className="group-lane"
+                    key={`lane-${row.group}`}
+                    style={{
+                      top: `${index * ROW_HEIGHT}px`,
+                      height: `${ROW_HEIGHT}px`,
+                      '--tag-indent': `${row.level * 12}px`,
+                      '--group-soft': row.palette.soft,
+                      '--group-base': row.palette.base,
+                      '--group-strong': row.palette.strong
+                    }}
+                  >
+                    <span>{row.label}</span>
+                  </div>
+                );
+              })}
+
+              {visibleRows.map((row, index) => {
+                if (row.type !== 'task') {
+                  return null;
+                }
+                const task = row.task;
+                const taskStatus = normalizeStatus(task.status, task.progress);
                 const position = geometry.get(task.id);
                 if (!position) {
                   return null;
                 }
-
                 const lagging = parseDateKey(task.end) < parseDateKey(today) && task.progress < 100;
-
+                const isOverdue = parseDateKey(task.end) < parseDateKey(today) && taskStatus !== 'done';
                 return (
                   <div className="row-wrap" key={task.id}>
                     <div
-                      className={`task-bar ${lagging ? 'lagging' : ''}`}
+                      className={`task-bar status-${taskStatus} ${lagging ? 'lagging' : ''}`}
                       style={{
                         left: `${position.startX}px`,
                         top: `${position.top}px`,
-                        width: `${position.width}px`
+                        width: `${position.width}px`,
+                        '--group-soft': row.palette.soft,
+                        '--group-base': row.palette.base,
+                        '--group-strong': row.palette.strong,
+                        '--group-fill': row.palette.fill
                       }}
                       onMouseDown={(event) => startDrag(event, task.id, 'move')}
                     >
                       <div className="task-fill" style={{ width: `${task.progress}%` }} />
-                      <span>{task.name}</span>
+                      <span className={`task-name ${isOverdue ? 'overdue' : ''}`}>#{task.id} {task.name}</span>
                       <div
                         className="handle left"
                         onMouseDown={(event) => {
@@ -1526,7 +2240,7 @@ function App() {
                         top: `${index * ROW_HEIGHT + 4}px`
                       }}
                     >
-                      #{task.id}
+                      {statusLabel(taskStatus)}
                     </div>
                   </div>
                 );
@@ -1542,7 +2256,7 @@ function App() {
                     refY="4"
                     orient="auto"
                   >
-                    <polygon points="0 0, 8 4, 0 8" fill="#2f8f79" />
+                    <polygon points="0 0, 8 4, 0 8" fill="context-stroke" />
                   </marker>
                 </defs>
 
@@ -1554,22 +2268,48 @@ function App() {
                   />
                 ))}
 
-                {relationPaths.dependencies.map((path, index) => (
+                {relationPaths.dependencies.map((dep, index) => (
                   <path
                     key={`dep-${index}`}
-                    d={path}
+                    d={dep.path}
                     className="dep-line"
+                    style={{ stroke: dep.color }}
                     markerEnd="url(#dep-arrow)"
                   />
                 ))}
               </svg>
 
-              <svg className="progress-layer" width={timeline.width} height={chartHeight}>
-                {progressPolyline && <polyline points={progressPolyline} className="progress-line" />}
-                {progressPolyline.split(' ').filter(Boolean).map((point) => (
-                  <circle key={point} cx={point.split(',')[0]} cy={point.split(',')[1]} r="4" className="progress-dot" />
-                ))}
-              </svg>
+              {showLightning && (
+                <svg className="progress-layer" width={timeline.width} height={chartHeight}>
+                  {lightningData.tagPolylines.map((item) => (
+                    <g key={`lightning-${item.tagPath}`}>
+                      <polyline
+                        points={item.polyline}
+                        className="progress-line"
+                        style={{ stroke: item.color }}
+                      />
+                      {item.points.map((point) => (
+                        <circle
+                          key={`dot-${item.tagPath}-${point.taskId}`}
+                          cx={point.x}
+                          cy={point.y}
+                          r="4"
+                          className="progress-dot"
+                          style={{ fill: item.dotColor }}
+                        />
+                      ))}
+                    </g>
+                  ))}
+                  {lightningData.crossTagLines.map((line) => (
+                    <path
+                      key={`cross-${line.key}`}
+                      d={line.path}
+                      className="cross-tag-lightning"
+                      style={{ stroke: line.color }}
+                    />
+                  ))}
+                </svg>
+              )}
             </div>
           </div>
         </section>
@@ -1580,7 +2320,19 @@ function App() {
           <section className="task-modal" onMouseDown={(event) => event.stopPropagation()}>
             <header>
               <h2>Task #{modalTask.id} Detail</h2>
-              <button type="button" className="modal-close" onClick={() => setModalTaskId(null)}>Close</button>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="modal-delete"
+                  onClick={() => {
+                    removeTask(modalTask.id);
+                    setModalTaskId(null);
+                  }}
+                >
+                  Delete
+                </button>
+                <button type="button" className="modal-close" onClick={() => setModalTaskId(null)}>Close</button>
+              </div>
             </header>
 
             <div className="modal-grid">
@@ -1622,21 +2374,24 @@ function App() {
                 />
               </label>
 
+              <label>
+                <span>Status</span>
+                <select
+                  value={normalizeStatus(modalTask.status, modalTask.progress)}
+                  onChange={(event) => updateTask(modalTask.id, { status: event.target.value })}
+                >
+                  {STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+
               <label className="modal-field-uid">
                 <span>UID</span>
                 <input
                   type="text"
                   value={modalTask.uid || ''}
                   readOnly
-                />
-              </label>
-
-              <label>
-                <span>Group</span>
-                <input
-                  type="text"
-                  value={modalTask.group}
-                  onChange={(event) => updateTask(modalTask.id, { group: normalizeGroup(event.target.value) })}
                 />
               </label>
 
