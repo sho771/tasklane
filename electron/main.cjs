@@ -2,6 +2,36 @@ const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const fs = require('fs/promises');
 const path = require('path');
 
+let mainLogPath = '';
+
+function formatError(error) {
+  if (!error) {
+    return '';
+  }
+  if (error instanceof Error) {
+    return error.stack || error.message;
+  }
+  return String(error);
+}
+
+async function writeMainLog(message, error) {
+  try {
+    if (!mainLogPath && app.isReady()) {
+      mainLogPath = path.join(app.getPath('userData'), 'taskkanri-main.log');
+    }
+    if (!mainLogPath) {
+      return;
+    }
+    const entry = [
+      `[${new Date().toISOString()}] ${message}`,
+      error ? formatError(error) : ''
+    ].filter(Boolean).join('\n');
+    await fs.appendFile(mainLogPath, `${entry}\n\n`, 'utf8');
+  } catch {
+    // Ignore logging failures.
+  }
+}
+
 function getDevUrlFromArgs() {
   const arg = process.argv.find((item) => item.startsWith('--dev-url='));
   if (!arg) {
@@ -205,6 +235,12 @@ ipcMain.handle('vault:write-markdown-files', async (_event, payload) => {
   return { writtenCount: written.length, writtenPaths: written };
 });
 
+ipcMain.on('renderer:log', (_event, payload) => {
+  const level = payload && typeof payload.level === 'string' ? payload.level : 'info';
+  const message = payload && typeof payload.message === 'string' ? payload.message : '';
+  writeMainLog(`renderer:${level} ${message}`);
+});
+
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1480,
@@ -220,16 +256,38 @@ function createWindow() {
     }
   });
 
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    writeMainLog(`did-fail-load code=${errorCode} url=${validatedURL} desc=${errorDescription}`);
+  });
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    writeMainLog(`console-message level=${level} line=${line} source=${sourceId} message=${message}`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    writeMainLog(`render-process-gone reason=${details.reason} exitCode=${details.exitCode}`);
+  });
+
+  mainWindow.on('unresponsive', () => {
+    writeMainLog('window-unresponsive');
+  });
+
   const rendererEntry = getRendererEntry();
   if (rendererEntry.type === 'url') {
-    mainWindow.loadURL(rendererEntry.value);
+    mainWindow.loadURL(rendererEntry.value).catch((error) => {
+      writeMainLog(`loadURL failed: ${rendererEntry.value}`, error);
+    });
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(rendererEntry.value);
+    mainWindow.loadFile(rendererEntry.value).catch((error) => {
+      writeMainLog(`loadFile failed: ${rendererEntry.value}`, error);
+    });
   }
 }
 
 app.whenReady().then(() => {
+  mainLogPath = path.join(app.getPath('userData'), 'taskkanri-main.log');
+  writeMainLog('app-ready');
   createWindow();
 
   app.on('activate', () => {
@@ -243,4 +301,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+process.on('uncaughtException', (error) => {
+  writeMainLog('uncaughtException', error);
+});
+
+process.on('unhandledRejection', (error) => {
+  writeMainLog('unhandledRejection', error);
 });

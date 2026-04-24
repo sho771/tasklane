@@ -1,17 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  MDXEditor,
-  headingsPlugin,
-  linkPlugin,
-  listsPlugin,
-  markdownShortcutPlugin,
-  quotePlugin,
-  thematicBreakPlugin
-} from '@mdxeditor/editor';
-import '@mdxeditor/editor/style.css';
+import { forwardRef, Fragment, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const ROW_HEIGHT = 52;
+const TASK_ROW_HEIGHT = 52;
+const GROUP_ROW_HEIGHT = 36;
 const BAR_HEIGHT = 30;
 const COL_WIDTH = 36;
 const STORAGE_KEY = 'taskkanri.desktop.v1';
@@ -381,7 +372,6 @@ function buildTaskMarkdown(task) {
     ? task.dependsOn.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
     : [];
   const tags = normalizeTags(task.tags);
-  const parent = Number.isInteger(task.parentId) && task.parentId > 0 ? task.parentId : null;
   const markdownBody = typeof task.markdown === 'string' ? task.markdown.trim() : '';
 
   return [
@@ -394,7 +384,6 @@ function buildTaskMarkdown(task) {
     `start: ${task.start}`,
     `end: ${task.end}`,
     `progress: ${clamp(Number(task.progress) || 0, 0, 100)}`,
-    `parentId: ${parent == null ? 'null' : parent}`,
     `tags: ${JSON.stringify(tags)}`,
     `dependsOn: [${depends.join(', ')}]`,
     '---',
@@ -602,10 +591,6 @@ function parseTagsInput(raw) {
   if (!text) {
     return [];
   }
-  const hashTags = text.match(/#[^\s#,]+/g);
-  if (hashTags && hashTags.length > 0) {
-    return normalizeTags(hashTags.map((tag) => tag.replace(/^#/, '')));
-  }
   return normalizeTags(text.split(/[,\s]+/));
 }
 
@@ -621,11 +606,36 @@ function tagLabel(tagPath) {
   return `#${tagPath}`;
 }
 
+function tagGroupLabel(tagPath) {
+  if (tagPath === UNTAGGED_KEY) {
+    return '(No Tag)';
+  }
+  const parts = normalizeTagPath(tagPath).split('/').filter(Boolean);
+  if (parts.length <= 1) {
+    return `#${parts[0]}`;
+  }
+  return `/${parts[parts.length - 1]}`;
+}
+
 function tagDepth(tagPath) {
   if (!tagPath || tagPath === UNTAGGED_KEY) {
     return 0;
   }
   return tagPath.split('/').filter(Boolean).length - 1;
+}
+
+function findRowIndexAtOffset(offset, rowMetrics) {
+  if (!Array.isArray(rowMetrics) || rowMetrics.length === 0) {
+    return 0;
+  }
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  for (let index = 0; index < rowMetrics.length; index += 1) {
+    const metric = rowMetrics[index];
+    if (safeOffset < metric.top + metric.height) {
+      return index;
+    }
+  }
+  return rowMetrics.length - 1;
 }
 
 function compareTagPath(a, b) {
@@ -822,26 +832,315 @@ function selectMarkdownFileFromBrowser() {
   });
 }
 
-function LiveMarkdownEditor({ markdown, onChange, placeholder, editorKey }) {
+function renderInlineMarkdown(text, keyPrefix = 'inline') {
+  const source = String(text || '');
+  const tokens = [];
+  let index = 0;
+
+  const pushText = (value) => {
+    if (value) {
+      tokens.push(value);
+    }
+  };
+
+  while (index < source.length) {
+    const rest = source.slice(index);
+
+    const linkMatch = rest.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
+    if (linkMatch) {
+      tokens.push(
+        <a key={`${keyPrefix}-link-${index}`} href={linkMatch[2]} target="_blank" rel="noreferrer">
+          {renderInlineMarkdown(linkMatch[1], `${keyPrefix}-linktext-${index}`)}
+        </a>
+      );
+      index += linkMatch[0].length;
+      continue;
+    }
+
+    const boldMatch = rest.match(/^\*\*([^*]+)\*\*/);
+    if (boldMatch) {
+      tokens.push(
+        <strong key={`${keyPrefix}-bold-${index}`}>
+          {renderInlineMarkdown(boldMatch[1], `${keyPrefix}-boldtext-${index}`)}
+        </strong>
+      );
+      index += boldMatch[0].length;
+      continue;
+    }
+
+    const italicMatch = rest.match(/^\*([^*]+)\*/);
+    if (italicMatch) {
+      tokens.push(
+        <em key={`${keyPrefix}-italic-${index}`}>
+          {renderInlineMarkdown(italicMatch[1], `${keyPrefix}-italictext-${index}`)}
+        </em>
+      );
+      index += italicMatch[0].length;
+      continue;
+    }
+
+    const codeMatch = rest.match(/^`([^`]+)`/);
+    if (codeMatch) {
+      tokens.push(<code key={`${keyPrefix}-code-${index}`}>{codeMatch[1]}</code>);
+      index += codeMatch[0].length;
+      continue;
+    }
+
+    const strikeMatch = rest.match(/^~~([^~]+)~~/);
+    if (strikeMatch) {
+      tokens.push(<del key={`${keyPrefix}-del-${index}`}>{renderInlineMarkdown(strikeMatch[1], `${keyPrefix}-deltext-${index}`)}</del>);
+      index += strikeMatch[0].length;
+      continue;
+    }
+
+    pushText(source[index]);
+    index += 1;
+  }
+
+  return tokens;
+}
+
+function renderParagraphLines(lines, keyPrefix = 'paragraph') {
+  return lines.flatMap((line, index) => {
+    const parts = [];
+    if (index > 0) {
+      parts.push(<br key={`${keyPrefix}-br-${index}`} />);
+    }
+    parts.push(
+      <Fragment key={`${keyPrefix}-line-${index}`}>
+        {renderInlineMarkdown(line, `${keyPrefix}-${index}`)}
+      </Fragment>
+    );
+    return parts;
+  });
+}
+
+function splitTableRow(line) {
+  return String(line || '')
+    .trim()
+    .replace(/^\||\|$/g, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function isTableSeparator(line) {
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function renderMarkdownBlocks(markdown) {
+  const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
+  const blocks = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    const fenceMatch = line.match(/^```(\w+)?\s*$/);
+    if (fenceMatch) {
+      const codeLines = [];
+      index += 1;
+      while (index < lines.length && !lines[index].match(/^```\s*$/)) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      index += 1;
+      blocks.push(
+        <pre key={`code-${blocks.length}`} className="md-preview-code">
+          <code>{codeLines.join('\n')}</code>
+        </pre>
+      );
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      const Tag = `h${headingMatch[1].length}`;
+      blocks.push(<Tag key={`heading-${blocks.length}`}>{renderInlineMarkdown(headingMatch[2], `h-${blocks.length}`)}</Tag>);
+      index += 1;
+      continue;
+    }
+
+    if (/^([-*_])(?:\s*\1){2,}\s*$/.test(trimmed)) {
+      blocks.push(<hr key={`hr-${blocks.length}`} />);
+      index += 1;
+      continue;
+    }
+
+    if (index + 1 < lines.length && line.includes('|') && isTableSeparator(lines[index + 1])) {
+      const header = splitTableRow(line);
+      const bodyRows = [];
+      index += 2;
+      while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
+        bodyRows.push(splitTableRow(lines[index]));
+        index += 1;
+      }
+      blocks.push(
+        <table key={`table-${blocks.length}`} className="md-preview-table">
+          <thead>
+            <tr>
+              {header.map((cell, cellIndex) => <th key={`th-${cellIndex}`}>{renderInlineMarkdown(cell, `th-${cellIndex}`)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {bodyRows.map((row, rowIndex) => (
+              <tr key={`tr-${rowIndex}`}>
+                {row.map((cell, cellIndex) => <td key={`td-${rowIndex}-${cellIndex}`}>{renderInlineMarkdown(cell, `td-${rowIndex}-${cellIndex}`)}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+      continue;
+    }
+
+    const listMatch = line.match(/^(\s*)([-+*]|\d+\.)\s+(.*)$/);
+    if (listMatch) {
+      const items = [];
+      const ordered = /\d+\./.test(listMatch[2]);
+      while (index < lines.length) {
+        const currentMatch = lines[index].match(/^(\s*)([-+*]|\d+\.)\s+(.*)$/);
+        if (!currentMatch) {
+          break;
+        }
+        const content = currentMatch[3];
+        const checkboxMatch = content.match(/^\[( |x|X)\]\s+(.*)$/);
+        items.push({
+          checked: Boolean(checkboxMatch && /x/i.test(checkboxMatch[1])),
+          isCheckbox: Boolean(checkboxMatch),
+          content: checkboxMatch ? checkboxMatch[2] : content
+        });
+        index += 1;
+      }
+      const ListTag = ordered ? 'ol' : 'ul';
+      blocks.push(
+        <ListTag key={`list-${blocks.length}`} className={items.some((item) => item.isCheckbox) ? 'md-preview-checklist' : ''}>
+          {items.map((item, itemIndex) => (
+            <li key={`li-${itemIndex}`} className={item.isCheckbox ? 'is-checkbox' : ''}>
+              {item.isCheckbox && <input type="checkbox" checked={item.checked} readOnly />}
+              <span>{renderInlineMarkdown(item.content, `li-${itemIndex}`)}</span>
+            </li>
+          ))}
+        </ListTag>
+      );
+      continue;
+    }
+
+    if (line.startsWith('>')) {
+      const quoteLines = [];
+      while (index < lines.length && lines[index].startsWith('>')) {
+        quoteLines.push(lines[index].replace(/^>\s?/, ''));
+        index += 1;
+      }
+      blocks.push(
+        <blockquote key={`quote-${blocks.length}`}>
+          {quoteLines.map((quoteLine, quoteIndex) => (
+            <p key={`quote-p-${quoteIndex}`}>{renderInlineMarkdown(quoteLine, `quote-${quoteIndex}`)}</p>
+          ))}
+        </blockquote>
+      );
+      continue;
+    }
+
+    const paragraphLines = [];
+    while (index < lines.length && lines[index].trim()) {
+      if (
+        lines[index].match(/^(\s*)([-+*]|\d+\.)\s+/)
+        || lines[index].match(/^(#{1,6})\s+/)
+        || lines[index].match(/^```/)
+        || lines[index].startsWith('>')
+        || /^([-*_])(?:\s*\1){2,}\s*$/.test(lines[index].trim())
+        || (index + 1 < lines.length && lines[index].includes('|') && isTableSeparator(lines[index + 1]))
+      ) {
+        break;
+      }
+      paragraphLines.push(lines[index]);
+      index += 1;
+    }
+    blocks.push(<p key={`p-${blocks.length}`}>{renderParagraphLines(paragraphLines, `p-${blocks.length}`)}</p>);
+  }
+
+  return blocks;
+}
+
+const LiveMarkdownEditor = forwardRef(function LiveMarkdownEditor({ markdown, onChange, placeholder, editorKey }, ref) {
+  const [draftMarkdown, setDraftMarkdown] = useState(markdown);
+  const commitTimerRef = useRef(null);
+  const previewScrollRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  useEffect(() => {
+    setDraftMarkdown(markdown);
+  }, [editorKey, markdown]);
+
+  useEffect(() => () => {
+    if (commitTimerRef.current) {
+      window.clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+  }, []);
+
+  const queueCommit = (value) => {
+    if (commitTimerRef.current) {
+      window.clearTimeout(commitTimerRef.current);
+    }
+    commitTimerRef.current = window.setTimeout(() => {
+      onChange(value);
+      commitTimerRef.current = null;
+    }, 180);
+  };
+
+  const flush = () => {
+    if (commitTimerRef.current) {
+      window.clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+    onChange(draftMarkdown);
+  };
+
+  useImperativeHandle(ref, () => ({
+    flush
+  }), [draftMarkdown]);
+
+  const syncScroll = () => {
+    if (previewScrollRef.current && textareaRef.current) {
+      previewScrollRef.current.scrollTop = textareaRef.current.scrollTop;
+      previewScrollRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    }
+  };
+
   return (
-    <div className="live-md-editor">
-      <MDXEditor
+    <div className="live-md-editor live-md-native" lang="ja">
+      <div className={`md-preview-layer ${draftMarkdown.trim() ? '' : 'is-empty'}`} ref={previewScrollRef}>
+        {draftMarkdown.trim()
+          ? renderMarkdownBlocks(draftMarkdown)
+          : <p className="md-placeholder">{placeholder}</p>}
+      </div>
+      <textarea
         key={editorKey}
-        markdown={markdown}
-        onChange={onChange}
+        ref={textareaRef}
+        className="md-input-layer"
+        lang="ja"
+        inputMode="text"
+        value={draftMarkdown}
+        onChange={(event) => {
+          setDraftMarkdown(event.target.value);
+          queueCommit(event.target.value);
+        }}
+        onBlur={flush}
+        onScroll={syncScroll}
         placeholder={placeholder}
-        plugins={[
-          headingsPlugin(),
-          listsPlugin(),
-          quotePlugin(),
-          thematicBreakPlugin(),
-          linkPlugin(),
-          markdownShortcutPlugin()
-        ]}
+        spellCheck={false}
       />
     </div>
   );
-}
+});
 
 function App() {
   const [tasks, setTasks] = useState(() => loadInitialTasks());
@@ -1190,7 +1489,7 @@ function App() {
       rows.push({
         type: 'group',
         group: path,
-        label: tagLabel(path),
+        label: tagGroupLabel(path),
         level: tagDepth(path),
         palette,
         count: subtreeCount(path),
@@ -1220,27 +1519,47 @@ function App() {
     return rows;
   }, [collapsedTags, filteredTasks, tagColors]);
 
+  const rowMetrics = useMemo(() => {
+    const metrics = [];
+    const taskMetricById = new Map();
+    const groupMetricByPath = new Map();
+    let top = 0;
+
+    visibleRows.forEach((row) => {
+      const height = row.type === 'group' ? GROUP_ROW_HEIGHT : TASK_ROW_HEIGHT;
+      const metric = {
+        top,
+        height,
+        centerY: top + (height / 2)
+      };
+      metrics.push(metric);
+      if (row.type === 'task') {
+        taskMetricById.set(row.task.id, metric);
+      } else {
+        groupMetricByPath.set(row.group, metric);
+      }
+      top += height;
+    });
+
+    return {
+      metrics,
+      taskMetricById,
+      groupMetricByPath,
+      totalHeight: Math.max(top, TASK_ROW_HEIGHT * 2)
+    };
+  }, [visibleRows]);
+
   const visibleTasks = useMemo(() => (
     visibleRows.filter((row) => row.type === 'task').map((row) => row.task)
   ), [visibleRows]);
 
-  const rowIndexByTaskId = useMemo(() => {
-    const map = new Map();
-    visibleRows.forEach((row, index) => {
-      if (row.type === 'task') {
-        map.set(row.task.id, index);
-      }
-    });
-    return map;
-  }, [visibleRows]);
-
-  const chartHeight = Math.max(visibleRows.length * ROW_HEIGHT, ROW_HEIGHT * 2);
+  const chartHeight = rowMetrics.totalHeight;
 
   const geometry = useMemo(() => {
     const positions = new Map();
     visibleTasks.forEach((task) => {
-      const rowIndex = rowIndexByTaskId.get(task.id);
-      if (rowIndex == null) {
+      const metric = rowMetrics.taskMetricById.get(task.id);
+      if (!metric) {
         return;
       }
       const startOffset = daysBetween(timeline.start, task.start);
@@ -1248,17 +1567,16 @@ function App() {
       const startX = startOffset * COL_WIDTH + 3;
       const width = Math.max(12, duration * COL_WIDTH - 6);
       const endX = startX + width;
-      const centerY = rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
       positions.set(task.id, {
         startX,
         endX,
-        centerY,
+        centerY: metric.centerY,
         width,
-        top: rowIndex * ROW_HEIGHT + ((ROW_HEIGHT - BAR_HEIGHT) / 2)
+        top: metric.top + ((metric.height - BAR_HEIGHT) / 2)
       });
     });
     return positions;
-  }, [rowIndexByTaskId, timeline.start, visibleTasks]);
+  }, [rowMetrics, timeline.start, visibleTasks]);
 
   useEffect(() => {
     const chartNode = chartScrollRef.current;
@@ -1775,7 +2093,7 @@ function App() {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const dayOffset = clamp(Math.floor(x / COL_WIDTH), 0, timeline.days - 1);
-    const row = clamp(Math.floor(y / ROW_HEIGHT), 0, Math.max(visibleRows.length - 1, 0));
+    const row = findRowIndexAtOffset(y, rowMetrics.metrics);
     const uid = createUid();
     const start = toDateKey(addDays(timeline.start, dayOffset));
     const end = toDateKey(addDays(start, 2));
@@ -1905,9 +2223,36 @@ function App() {
   }, [geometry, tagColors, visibleTasks]);
 
   const today = toDateKey(new Date());
-  const validParentOptions = (taskId) => orderedTasks.filter((candidate) => candidate.id !== taskId);
 
   const modalTask = tasks.find((task) => task.id === modalTaskId) || null;
+  const [modalTagsInput, setModalTagsInput] = useState('');
+  const noteEditorRef = useRef(null);
+
+  useEffect(() => {
+    if (!modalTask) {
+      setModalTagsInput('');
+      return;
+    }
+    setModalTagsInput(tagsToInput(modalTask.tags));
+  }, [modalTaskId, modalTask?.tags]);
+
+  const commitModalDrafts = () => {
+    if (modalTask) {
+      updateTask(modalTask.id, {
+        tags: parseTagsInput(modalTagsInput)
+      });
+      setModalTagsInput(tagsToInput(parseTagsInput(modalTagsInput)));
+    }
+    if (noteEditorRef.current && typeof noteEditorRef.current.flush === 'function') {
+      noteEditorRef.current.flush();
+    }
+  };
+
+  const closeModal = () => {
+    commitModalDrafts();
+    setModalTaskId(null);
+  };
+
   const splitStyle = isCompact ? undefined : { gridTemplateColumns: `${leftWidth}px 10px minmax(0, 1fr)` };
   const vaultLabel = vaultPath ? getPathBaseName(vaultPath) : 'No Vault';
   const runMenuAction = (action) => () => {
@@ -2021,17 +2366,18 @@ function App() {
           <div className="task-scroll" ref={listScrollRef}>
             <div className="task-list-inner" style={{ minHeight: `${chartHeight}px` }}>
               {visibleRows.length === 0 && (
-                <div className="empty-row" style={{ height: `${ROW_HEIGHT}px` }}>
+                <div className="empty-row" style={{ height: `${TASK_ROW_HEIGHT}px` }}>
                   No tasks match the current filters.
                 </div>
               )}
-              {visibleRows.map((row) => {
+              {visibleRows.map((row, index) => {
+                const metric = rowMetrics.metrics[index];
                 if (row.type === 'group') {
                   return (
                     <div
                       className="group-row"
                       style={{
-                        height: `${ROW_HEIGHT}px`,
+                        height: `${metric?.height || GROUP_ROW_HEIGHT}px`,
                         '--tag-indent': `${row.level * 12}px`,
                         '--group-soft': row.palette.soft,
                         '--group-base': row.palette.base,
@@ -2078,7 +2424,7 @@ function App() {
                   <div
                     className="task-row compact"
                     style={{
-                      height: `${ROW_HEIGHT}px`,
+                      height: `${metric?.height || TASK_ROW_HEIGHT}px`,
                       '--task-indent': `${(row.level + 1) * 12}px`,
                       '--group-soft': row.palette.soft,
                       '--group-base': row.palette.base,
@@ -2162,12 +2508,12 @@ function App() {
               style={{
                 width: `${timeline.width}px`,
                 height: `${chartHeight}px`,
-                '--col-width': `${COL_WIDTH}px`,
-                '--row-height': `${ROW_HEIGHT}px`
+                '--col-width': `${COL_WIDTH}px`
               }}
               onDoubleClick={handleChartDoubleClick}
             >
               {visibleRows.map((row, index) => {
+                const metric = rowMetrics.metrics[index];
                 if (row.type !== 'group') {
                   return null;
                 }
@@ -2177,8 +2523,8 @@ function App() {
                     className="group-lane"
                     key={`lane-${row.group}`}
                     style={{
-                      top: `${index * ROW_HEIGHT}px`,
-                      height: `${ROW_HEIGHT}px`,
+                      top: `${metric?.top || 0}px`,
+                      height: `${metric?.height || GROUP_ROW_HEIGHT}px`,
                       '--tag-indent': `${row.level * 12}px`,
                       '--group-soft': row.palette.soft,
                       '--group-base': row.palette.base,
@@ -2191,6 +2537,7 @@ function App() {
               })}
 
               {visibleRows.map((row, index) => {
+                const metric = rowMetrics.metrics[index];
                 if (row.type !== 'task') {
                   return null;
                 }
@@ -2218,7 +2565,19 @@ function App() {
                       onMouseDown={(event) => startDrag(event, task.id, 'move')}
                     >
                       <div className="task-fill" style={{ width: `${task.progress}%` }} />
-                      <span className={`task-name ${isOverdue ? 'overdue' : ''}`}>#{task.id} {task.name}</span>
+                      <button
+                        type="button"
+                        className={`task-name task-name-button ${isOverdue ? 'overdue' : ''}`}
+                        onMouseDown={(event) => {
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setModalTaskId(task.id);
+                        }}
+                      >
+                        #{task.id} {task.name}
+                      </button>
                       <div
                         className="handle left"
                         onMouseDown={(event) => {
@@ -2237,7 +2596,7 @@ function App() {
                     <div
                       className="row-label"
                       style={{
-                        top: `${index * ROW_HEIGHT + 4}px`
+                        top: `${(metric?.top || 0) + 4}px`
                       }}
                     >
                       {statusLabel(taskStatus)}
@@ -2316,8 +2675,8 @@ function App() {
       </div>
 
       {modalTask && (
-        <div className="modal-overlay" onMouseDown={() => setModalTaskId(null)}>
-          <section className="task-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-overlay" onClick={closeModal}>
+          <section className="task-modal" onClick={(event) => event.stopPropagation()}>
             <header>
               <h2>Task #{modalTask.id} Detail</h2>
               <div className="modal-actions">
@@ -2331,7 +2690,7 @@ function App() {
                 >
                   Delete
                 </button>
-                <button type="button" className="modal-close" onClick={() => setModalTaskId(null)}>Close</button>
+                <button type="button" className="modal-close" onClick={closeModal}>Close</button>
               </div>
             </header>
 
@@ -2342,6 +2701,15 @@ function App() {
                   type="text"
                   value={modalTask.name}
                   onChange={(event) => updateTask(modalTask.id, { name: event.target.value })}
+                />
+              </label>
+
+              <label className="modal-field-uid">
+                <span>UID</span>
+                <input
+                  type="text"
+                  value={modalTask.uid || ''}
+                  readOnly
                 />
               </label>
 
@@ -2363,6 +2731,19 @@ function App() {
                 />
               </label>
 
+              <label>
+                <span>Status</span>
+                <select
+                  className={`modal-status-select task-status-select status-${normalizeStatus(modalTask.status, modalTask.progress)}`}
+                  value={normalizeStatus(modalTask.status, modalTask.progress)}
+                  onChange={(event) => updateTask(modalTask.id, { status: event.target.value })}
+                >
+                  {STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+
               <label className="modal-field-progress">
                 <span>Progress (%)</span>
                 <input
@@ -2375,58 +2756,27 @@ function App() {
               </label>
 
               <label>
-                <span>Status</span>
-                <select
-                  value={normalizeStatus(modalTask.status, modalTask.progress)}
-                  onChange={(event) => updateTask(modalTask.id, { status: event.target.value })}
-                >
-                  {STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="modal-field-uid">
-                <span>UID</span>
+                <span>Tags</span>
                 <input
                   type="text"
-                  value={modalTask.uid || ''}
-                  readOnly
+                  placeholder="#task/hoge #work"
+                  value={modalTagsInput}
+                  onChange={(event) => {
+                    setModalTagsInput(event.target.value);
+                  }}
+                  onBlur={() => {
+                    commitModalDrafts();
+                  }}
                 />
               </label>
 
               <label>
-                <span>Parent</span>
-                <select
-                  value={modalTask.parentId ?? ''}
-                  onChange={(event) => updateTask(modalTask.id, { parentId: event.target.value ? Number(event.target.value) : null })}
-                >
-                  <option value="">No parent</option>
-                  {validParentOptions(modalTask.id).map((option) => (
-                    <option value={option.id} key={option.id}>#{option.id} {option.name}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                <span>Depends On (comma IDs)</span>
+                <span>Depends On</span>
                 <input
                   type="text"
                   value={toDependsText(modalTask.dependsOn)}
                   onChange={(event) => updateTask(modalTask.id, {
                     dependsOn: parseDependsText(event.target.value, modalTask.id)
-                  })}
-                />
-              </label>
-
-              <label>
-                <span>tags</span>
-                <input
-                  type="text"
-                  placeholder="#task #work"
-                  value={tagsToInput(modalTask.tags)}
-                  onChange={(event) => updateTask(modalTask.id, {
-                    tags: parseTagsInput(event.target.value)
                   })}
                 />
               </label>
@@ -2436,6 +2786,7 @@ function App() {
               <h3>Notes (Markdown Live)</h3>
               <p className="markdown-live-hint">Type markdown shortcuts (for example `#`, `-`, `**`) and it is rendered in place.</p>
               <LiveMarkdownEditor
+                ref={noteEditorRef}
                 editorKey={`note-${modalTask.id}`}
                 markdown={modalTask.markdown}
                 onChange={(value) => updateTask(modalTask.id, { markdown: value })}
