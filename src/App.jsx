@@ -1,4 +1,46 @@
+import {
+  MDXEditor,
+  addComposerChild$,
+  addNestedEditorChild$,
+  addTableCellEditorChild$,
+  codeBlockPlugin,
+  headingsPlugin,
+  linkDialogPlugin,
+  linkPlugin,
+  listsPlugin,
+  quotePlugin,
+  realmPlugin,
+  tablePlugin,
+  thematicBreakPlugin
+} from '@mdxeditor/editor';
+import {
+  BOLD_ITALIC_STAR,
+  BOLD_ITALIC_UNDERSCORE,
+  BOLD_STAR,
+  BOLD_UNDERSCORE,
+  CHECK_LIST,
+  HEADING,
+  INLINE_CODE,
+  ITALIC_STAR,
+  ITALIC_UNDERSCORE,
+  LINK,
+  ORDERED_LIST,
+  QUOTE,
+  UNORDERED_LIST
+} from '@lexical/markdown';
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin';
+import { $insertList } from '@lexical/list';
+import {
+  $getSelection,
+  $isRangeSelection,
+  $isTextNode,
+  COMMAND_PRIORITY_HIGH,
+  CONTROLLED_TEXT_INSERTION_COMMAND,
+  KEY_DOWN_COMMAND
+} from 'lexical';
 import { forwardRef, Fragment, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import '@mdxeditor/editor/style.css';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TASK_ROW_HEIGHT = 52;
@@ -39,6 +81,128 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'open', label: '完了以外' },
   ...STATUS_OPTIONS
 ];
+
+const TASKKANRI_UNORDERED_LIST = {
+  ...UNORDERED_LIST,
+  regExp: /^(\s*)[-*+]\s(?=\S)(?!\[)/
+};
+
+const TASKKANRI_MARKDOWN_SHORTCUT_TRANSFORMERS = [
+  BOLD_ITALIC_STAR,
+  BOLD_ITALIC_UNDERSCORE,
+  BOLD_STAR,
+  BOLD_UNDERSCORE,
+  INLINE_CODE,
+  ITALIC_STAR,
+  ITALIC_UNDERSCORE,
+  HEADING,
+  QUOTE,
+  LINK,
+  CHECK_LIST,
+  TASKKANRI_UNORDERED_LIST,
+  ORDERED_LIST
+];
+const TASKKANRI_LIST_TRANSFORMERS = new Set([CHECK_LIST, TASKKANRI_UNORDERED_LIST, ORDERED_LIST]);
+
+function TaskkanriDeferredListShortcut() {
+  const [editor] = useLexicalComposerContext();
+
+  const transformPendingBulletList = (insertedText) => {
+    if (!insertedText || insertedText.startsWith('[')) {
+      return false;
+    }
+
+    let shouldTransform = false;
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+        return;
+      }
+      const anchor = selection.anchor;
+      const node = anchor.getNode();
+      if (!$isTextNode(node)) {
+        return;
+      }
+      shouldTransform = /^[-*+]\s$/.test(node.getTextContent()) && anchor.offset === 2;
+    });
+
+    if (!shouldTransform) {
+      return false;
+    }
+
+    editor.update(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+        return;
+      }
+      const node = selection.anchor.getNode();
+      if (!$isTextNode(node) || !/^[-*+]\s$/.test(node.getTextContent())) {
+        return;
+      }
+      node.setTextContent('');
+      node.selectEnd();
+      $insertList('bullet');
+      const nextSelection = $getSelection();
+      if ($isRangeSelection(nextSelection)) {
+        nextSelection.insertText(insertedText);
+      }
+    });
+    return true;
+  };
+
+  useEffect(() => editor.registerCommand(
+    KEY_DOWN_COMMAND,
+    (event) => {
+      if (
+        event.key.length !== 1
+        || event.key === '['
+        || event.ctrlKey
+        || event.metaKey
+        || event.altKey
+      ) {
+        return false;
+      }
+
+      if (!transformPendingBulletList(event.key)) {
+        return false;
+      }
+
+      event.preventDefault();
+      return true;
+    },
+    COMMAND_PRIORITY_HIGH
+  ), [editor]);
+
+  useEffect(() => editor.registerCommand(
+    CONTROLLED_TEXT_INSERTION_COMMAND,
+    (payload) => {
+      const insertedText = typeof payload === 'string'
+        ? payload
+        : (payload && typeof payload.data === 'string' ? payload.data : '');
+      return transformPendingBulletList(insertedText);
+    },
+    COMMAND_PRIORITY_HIGH
+  ), [editor]);
+
+  return null;
+}
+
+const taskkanriMarkdownShortcutPlugin = realmPlugin({
+  init(realm) {
+    realm.pubIn({
+      [addComposerChild$]: [
+        () => <MarkdownShortcutPlugin transformers={TASKKANRI_MARKDOWN_SHORTCUT_TRANSFORMERS} />,
+        TaskkanriDeferredListShortcut
+      ],
+      [addNestedEditorChild$]: () => <MarkdownShortcutPlugin transformers={TASKKANRI_MARKDOWN_SHORTCUT_TRANSFORMERS} />,
+      [addTableCellEditorChild$]: () => (
+        <MarkdownShortcutPlugin
+          transformers={TASKKANRI_MARKDOWN_SHORTCUT_TRANSFORMERS.filter((transformer) => !TASKKANRI_LIST_TRANSFORMERS.has(transformer))}
+        />
+      )
+    });
+  }
+});
 
 function startOfDay(input) {
   const date = new Date(input);
@@ -1195,94 +1359,53 @@ function renderMarkdownBlocks(markdown) {
 }
 
 const LiveMarkdownEditor = forwardRef(function LiveMarkdownEditor({ markdown, onChange, placeholder, editorKey }, ref) {
-  const [draftMarkdown, setDraftMarkdown] = useState(markdown);
-  const [isEditing, setIsEditing] = useState(false);
-  const commitTimerRef = useRef(null);
-  const textareaRef = useRef(null);
+  const editorRef = useRef(null);
+  const latestMarkdownRef = useRef(markdown);
+  const plugins = useMemo(() => [
+    headingsPlugin({ allowedHeadingLevels: [1, 2, 3, 4] }),
+    listsPlugin(),
+    quotePlugin(),
+    thematicBreakPlugin(),
+    linkPlugin(),
+    linkDialogPlugin(),
+    tablePlugin(),
+    codeBlockPlugin({ defaultCodeBlockLanguage: 'text' }),
+    taskkanriMarkdownShortcutPlugin()
+  ], []);
 
   useEffect(() => {
-    setDraftMarkdown(markdown);
+    latestMarkdownRef.current = markdown;
   }, [editorKey, markdown]);
 
-  useEffect(() => () => {
-    if (commitTimerRef.current) {
-      window.clearTimeout(commitTimerRef.current);
-      commitTimerRef.current = null;
-    }
-  }, []);
-
-  const queueCommit = (value) => {
-    if (commitTimerRef.current) {
-      window.clearTimeout(commitTimerRef.current);
-    }
-    commitTimerRef.current = window.setTimeout(() => {
-      onChange(value);
-      commitTimerRef.current = null;
-    }, 180);
-  };
-
   const flush = () => {
-    if (commitTimerRef.current) {
-      window.clearTimeout(commitTimerRef.current);
-      commitTimerRef.current = null;
+    if (editorRef.current && typeof editorRef.current.getMarkdown === 'function') {
+      const currentMarkdown = editorRef.current.getMarkdown();
+      latestMarkdownRef.current = currentMarkdown;
+      onChange(currentMarkdown);
     }
-    onChange(draftMarkdown);
   };
 
   useImperativeHandle(ref, () => ({
     flush
-  }), [draftMarkdown]);
-
-  const startEditing = () => {
-    setIsEditing(true);
-    window.requestAnimationFrame(() => {
-      if (textareaRef.current) {
-        textareaRef.current.focus();
-      }
-    });
-  };
-
-  const showPreview = !isEditing && draftMarkdown.trim();
+  }), []);
 
   return (
-    <div className={`live-md-editor live-md-native ${showPreview ? 'is-previewing' : 'is-editing'}`} lang="ja">
-      {showPreview ? (
-        <div
-          className="md-preview-layer"
-          role="button"
-          tabIndex={0}
-          onClick={startEditing}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              startEditing();
-            }
-          }}
-        >
-          {renderMarkdownBlocks(draftMarkdown)}
-        </div>
-      ) : (
-        <textarea
-          key={editorKey}
-          ref={textareaRef}
-          className="md-input-layer"
-          lang="ja"
-          inputMode="text"
-          value={draftMarkdown}
-          onChange={(event) => {
-            setDraftMarkdown(event.target.value);
-            queueCommit(event.target.value);
-          }}
-          onFocus={() => setIsEditing(true)}
-          onBlur={() => {
-            flush();
-            setIsEditing(false);
-          }}
-          placeholder={placeholder}
-          spellCheck={false}
-        />
-      )}
-    </div>
+    <MDXEditor
+      key={editorKey}
+      ref={editorRef}
+      className="live-md-editor live-md-native"
+      contentEditableClassName="mdx-notes-content"
+      markdown={markdown || ''}
+      plugins={plugins}
+      spellCheck={false}
+      placeholder={placeholder}
+      onChange={(value, initialMarkdownNormalize) => {
+        latestMarkdownRef.current = value;
+        if (!initialMarkdownNormalize) {
+          onChange(value);
+        }
+      }}
+    />
   );
 });
 

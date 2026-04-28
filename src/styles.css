@@ -1020,6 +1020,59 @@ body.split-dragging {
   border-radius: 8px;
   background: #ffffff;
   overflow: hidden;
+  --baseTextContrast: #233338;
+  --baseBase: #ffffff;
+  --baseBg: #ffffff;
+  --baseBorder: rgba(27, 40, 41, 0.16);
+  --baseLine: rgba(27, 40, 41, 0.16);
+}
+
+.mdx-notes-content {
+  min-height: 220px;
+  max-height: min(50vh, 420px);
+  padding: 12px;
+  overflow: auto;
+  font-family: var(--app-font-sans);
+  font-size: 0.95rem;
+  line-height: 1.2;
+  color: #233338;
+  background: #ffffff;
+  word-break: break-word;
+}
+
+.mdx-notes-content:focus {
+  outline: none;
+}
+
+.mdx-notes-content p,
+.mdx-notes-content ul,
+.mdx-notes-content ol,
+.mdx-notes-content blockquote,
+.mdx-notes-content table,
+.mdx-notes-content pre {
+  margin: 0 0 6px;
+}
+
+.mdx-notes-content h1,
+.mdx-notes-content h2,
+.mdx-notes-content h3,
+.mdx-notes-content h4,
+.mdx-notes-content h5,
+.mdx-notes-content h6 {
+  margin: 0 0 6px;
+  line-height: 1.25;
+}
+
+.mdx-notes-content h1 {
+  font-size: 1.34rem;
+}
+
+.mdx-notes-content h2 {
+  font-size: 1.18rem;
+}
+
+.mdx-notes-content h3 {
+  font-size: 1.06rem;
 }
 
 .md-preview-layer,
