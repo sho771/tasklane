@@ -17,6 +17,23 @@ const STATUS_OPTIONS = [
   { value: 'doing', label: '処理中' },
   { value: 'done', label: '完了' }
 ];
+const STATUS_COLOR_MAP = {
+  todo: {
+    border: 'rgba(180, 48, 48, 0.22)',
+    background: '#ffe5e5',
+    color: '#b43030'
+  },
+  doing: {
+    border: 'rgba(44, 91, 154, 0.22)',
+    background: '#e6f1ff',
+    color: '#2c5b9a'
+  },
+  done: {
+    border: 'rgba(47, 123, 76, 0.22)',
+    background: '#e2f7eb',
+    color: '#2f7b4c'
+  }
+};
 const STATUS_FILTER_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'open', label: '完了以外' },
@@ -561,6 +578,91 @@ function statusProgressValue(status, fallbackProgress = 0) {
   return clamp(Number(fallbackProgress) || 0, 0, 100);
 }
 
+function StatusDropdown({ value, onChange, className = '' }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const rootRef = useRef(null);
+  const currentStatus = normalizeStatus(value);
+  const currentOption = STATUS_OPTIONS.find((option) => option.value === currentStatus) || STATUS_OPTIONS[0];
+  const currentColors = STATUS_COLOR_MAP[currentStatus] || STATUS_COLOR_MAP.todo;
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const onMouseDown = (event) => {
+      if (rootRef.current && !rootRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className={`status-dropdown ${isOpen ? 'is-open' : ''} ${className}`} ref={rootRef}>
+      <button
+        type="button"
+        className={`status-chip status-${currentStatus}`}
+        style={{
+          borderColor: currentColors.border,
+          backgroundColor: currentColors.background,
+          color: currentColors.color,
+          '--status-border': currentColors.border,
+          '--status-bg': currentColors.background,
+          '--status-fg': currentColors.color
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((prev) => !prev)}
+      >
+        <span className="status-chip-dot" style={{ backgroundColor: currentColors.color }} />
+        <span className="status-chip-label" style={{ color: currentColors.color }}>{currentOption.label}</span>
+        <span className="status-chip-caret" style={{ color: currentColors.color }}>▾</span>
+      </button>
+      {isOpen && (
+        <div className="status-menu" role="listbox" aria-label="Status">
+          {STATUS_OPTIONS.map((option) => (
+            <button
+              type="button"
+              key={option.value}
+              role="option"
+              aria-selected={option.value === currentStatus}
+              className={`status-option status-${option.value} ${option.value === currentStatus ? 'selected' : ''}`}
+              style={{
+                borderColor: STATUS_COLOR_MAP[option.value].border,
+                backgroundColor: STATUS_COLOR_MAP[option.value].background,
+                color: STATUS_COLOR_MAP[option.value].color,
+                '--status-border': STATUS_COLOR_MAP[option.value].border,
+                '--status-bg': STATUS_COLOR_MAP[option.value].background,
+                '--status-fg': STATUS_COLOR_MAP[option.value].color
+              }}
+              onClick={() => {
+                onChange(option.value);
+                setIsOpen(false);
+              }}
+            >
+              <span className="status-chip-dot" style={{ backgroundColor: STATUS_COLOR_MAP[option.value].color }} />
+              <span style={{ color: STATUS_COLOR_MAP[option.value].color }}>{option.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function createPaletteFromBaseHex(baseHex) {
   const normalized = normalizeHexColor(baseHex) || '#8ecab5';
   return {
@@ -1094,8 +1196,8 @@ function renderMarkdownBlocks(markdown) {
 
 const LiveMarkdownEditor = forwardRef(function LiveMarkdownEditor({ markdown, onChange, placeholder, editorKey }, ref) {
   const [draftMarkdown, setDraftMarkdown] = useState(markdown);
+  const [isEditing, setIsEditing] = useState(false);
   const commitTimerRef = useRef(null);
-  const previewScrollRef = useRef(null);
   const textareaRef = useRef(null);
 
   useEffect(() => {
@@ -1131,36 +1233,55 @@ const LiveMarkdownEditor = forwardRef(function LiveMarkdownEditor({ markdown, on
     flush
   }), [draftMarkdown]);
 
-  const syncScroll = () => {
-    if (previewScrollRef.current && textareaRef.current) {
-      previewScrollRef.current.scrollTop = textareaRef.current.scrollTop;
-      previewScrollRef.current.scrollLeft = textareaRef.current.scrollLeft;
-    }
+  const startEditing = () => {
+    setIsEditing(true);
+    window.requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
+    });
   };
 
+  const showPreview = !isEditing && draftMarkdown.trim();
+
   return (
-    <div className="live-md-editor live-md-native" lang="ja">
-      <div className={`md-preview-layer ${draftMarkdown.trim() ? '' : 'is-empty'}`} ref={previewScrollRef}>
-        {draftMarkdown.trim()
-          ? renderMarkdownBlocks(draftMarkdown)
-          : <p className="md-placeholder">{placeholder}</p>}
-      </div>
-      <textarea
-        key={editorKey}
-        ref={textareaRef}
-        className="md-input-layer"
-        lang="ja"
-        inputMode="text"
-        value={draftMarkdown}
-        onChange={(event) => {
-          setDraftMarkdown(event.target.value);
-          queueCommit(event.target.value);
-        }}
-        onBlur={flush}
-        onScroll={syncScroll}
-        placeholder={placeholder}
-        spellCheck={false}
-      />
+    <div className={`live-md-editor live-md-native ${showPreview ? 'is-previewing' : 'is-editing'}`} lang="ja">
+      {showPreview ? (
+        <div
+          className="md-preview-layer"
+          role="button"
+          tabIndex={0}
+          onClick={startEditing}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              startEditing();
+            }
+          }}
+        >
+          {renderMarkdownBlocks(draftMarkdown)}
+        </div>
+      ) : (
+        <textarea
+          key={editorKey}
+          ref={textareaRef}
+          className="md-input-layer"
+          lang="ja"
+          inputMode="text"
+          value={draftMarkdown}
+          onChange={(event) => {
+            setDraftMarkdown(event.target.value);
+            queueCommit(event.target.value);
+          }}
+          onFocus={() => setIsEditing(true)}
+          onBlur={() => {
+            flush();
+            setIsEditing(false);
+          }}
+          placeholder={placeholder}
+          spellCheck={false}
+        />
+      )}
     </div>
   );
 });
@@ -1482,22 +1603,13 @@ function App() {
       ensureNode(primaryPath).tasks.push(task);
     });
 
-    const countMemo = new Map();
-    const subtreeCount = (path) => {
-      if (countMemo.has(path)) {
-        return countMemo.get(path);
-      }
-      const node = nodeMap.get(path);
-      if (!node) {
-        return 0;
-      }
-      let count = node.tasks.length;
-      [...node.children].forEach((childPath) => {
-        count += subtreeCount(childPath);
-      });
-      countMemo.set(path, count);
-      return count;
-    };
+    const statusCountsFor = (tasksForPath) => tasksForPath.reduce((counts, task) => {
+      const status = normalizeStatus(task.status, task.progress);
+      return {
+        ...counts,
+        [status]: counts[status] + 1
+      };
+    }, { todo: 0, doing: 0, done: 0 });
 
     const rows = [];
 
@@ -1515,7 +1627,7 @@ function App() {
         label: tagGroupLabel(path),
         level: tagDepth(path),
         palette,
-        count: subtreeCount(path),
+        statusCounts: statusCountsFor(node.tasks),
         collapsed
       });
 
@@ -2522,7 +2634,11 @@ function App() {
                         aria-label={`${row.group} color`}
                       />
                       <strong className="group-name">{row.label}</strong>
-                      <span className="group-count">{row.count}</span>
+                      <span className="group-counts" aria-label={`未着手 ${row.statusCounts.todo}、処理中 ${row.statusCounts.doing}、完了 ${row.statusCounts.done}`}>
+                        <span className="group-count count-todo" title="未着手">{row.statusCounts.todo}</span>
+                        <span className="group-count count-doing" title="処理中">{row.statusCounts.doing}</span>
+                        <span className="group-count count-done" title="完了">{row.statusCounts.done}</span>
+                      </span>
                     </div>
                   );
                 }
@@ -2551,15 +2667,10 @@ function App() {
                     >
                       {task.name}
                     </button>
-                    <select
-                      className={`task-status-select status-${taskStatus}`}
+                    <StatusDropdown
                       value={taskStatus}
-                      onChange={(event) => updateTask(task.id, { status: event.target.value })}
-                    >
-                      {STATUS_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
+                      onChange={(status) => updateTask(task.id, { status })}
+                    />
                   </div>
                 );
               })}
@@ -2806,7 +2917,7 @@ function App() {
             </header>
 
             <div className="modal-grid">
-              <label>
+              <label className="modal-field-name">
                 <span>Name</span>
                 <input
                   type="text"
@@ -2824,7 +2935,7 @@ function App() {
                 />
               </label>
 
-              <label className="modal-field-date">
+              <label className="modal-field-date modal-field-start">
                 <span>Start</span>
                 <input
                   type="date"
@@ -2833,7 +2944,7 @@ function App() {
                 />
               </label>
 
-              <label className="modal-field-date">
+              <label className="modal-field-date modal-field-due">
                 <span>Due</span>
                 <input
                   type="date"
@@ -2842,17 +2953,13 @@ function App() {
                 />
               </label>
 
-              <label>
+              <label className="modal-field-status">
                 <span>Status</span>
-                <select
-                  className={`modal-status-select task-status-select status-${normalizeStatus(modalTask.status, modalTask.progress)}`}
+                <StatusDropdown
+                  className="modal-status-select"
                   value={normalizeStatus(modalTask.status, modalTask.progress)}
-                  onChange={(event) => updateTask(modalTask.id, { status: event.target.value })}
-                >
-                  {STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
+                  onChange={(status) => updateTask(modalTask.id, { status })}
+                />
               </label>
 
               <label className="modal-field-progress">
@@ -2866,7 +2973,7 @@ function App() {
                 />
               </label>
 
-              <label>
+              <label className="modal-field-tags">
                 <span>Tags</span>
                 <input
                   type="text"
@@ -2881,7 +2988,7 @@ function App() {
                 />
               </label>
 
-              <label>
+              <label className="modal-field-depends">
                 <span>Depends On</span>
                 <input
                   type="text"
@@ -2895,7 +3002,6 @@ function App() {
 
             <div className="markdown-section">
               <h3>Notes (Markdown Live)</h3>
-              <p className="markdown-live-hint">Type markdown shortcuts (for example `#`, `-`, `**`) and it is rendered in place.</p>
               <LiveMarkdownEditor
                 ref={noteEditorRef}
                 editorKey={`note-${modalTask.id}`}
