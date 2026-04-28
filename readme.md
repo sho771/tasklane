@@ -1,71 +1,113 @@
 # Taskkanri Desktop (Electron + React)
 
-A desktop task manager with a task list and interactive Gantt chart.
+タスク一覧とインタラクティブなガントチャートを備えたデスクトップ向けタスク管理ツールです。
 
-## Implemented requirements
+この README は日本語で管理します。今後、仕様や手順を追記する場合も日本語で記載してください。
 
-- Easy task input from the `Task Add` button on the left panel.
-- Left `1/3` task list and right `2/3` Gantt chart.
-- Drag the vertical boundary to resize left/right panel width.
-- Left form area remains visible in windowed mode (task list scrolls independently).
-- Left task rows and right Gantt rows keep aligned heights.
-- `Task Add` button on the left header adds a new task quickly.
-- Obsidian vault integration:
-  - Actions are grouped under the `⋮` menu (except `Task Add`).
-  - `Vault`: select vault folder.
-  - `Vault Off`: disconnect current vault path.
-  - `Export`: save each task as markdown under `Taskkanri/`.
-  - `Import Tag`: import markdown notes tagged with `#task` from vault into tasks.
-  - `Import File`: import tasks from one selected markdown file.
-  - After vault selection, task edits are auto-saved to markdown (debounced).
-  - `Clear Tasks`: delete all tasks in one action.
-- Mouse operation on Gantt chart:
-  - Drag task bar: move schedule.
-  - Drag left/right handles: edit start/end date.
-  - Double-click empty chart area: insert a task at that row/date.
-- Dependency visibility:
-  - Predecessor links: arrow lines.
-  - Parent-child links: dotted guide lines.
-- Zigzag progress line (Inazuma line):
-  - Connects each task progress point across rows.
-- Click task name / task No to open modal and edit a single Notes field with in-place Markdown live rendering.
-- Modal supports `tags` property input (for example `#task #work`).
-- Task `UID` is auto-generated on `Task Add` in `YYYYMMDDHHmmss` format.
-- Tasks can be grouped with the `group` field and are displayed grouped by that value.
-- Today's date is highlighted on the timeline header (no vertical `TODAY` label line on the chart).
+## 実装済みの内容
 
-## Tech stack
+- 左ペインにタスク一覧、右ペインにガントチャートを表示します。
+- 左ペイン上部の `Task Add` ボタンからタスクをすばやく追加できます。
+- 左右ペインの境界をドラッグして幅を変更できます。
+- 左ペインの上部操作エリアは固定され、タスク一覧のみ独立してスクロールします。
+- 左側のタスク行と右側のガント行の高さが揃うようにしています。
+- ステータス、タグ、期限日でタスクを絞り込めます。
+- タグ階層ごとにタスクをグループ表示できます。
+- タググループは折りたたみと色変更に対応しています。
+- 今日の日付はタイムラインヘッダー上で強調表示されます。
+
+## タスク操作
+
+- タスク名またはタスク No をクリックすると詳細モーダルを開けます。
+- 詳細モーダルでは、タスク名、UID、開始日、期限日、ステータス、進捗率、タグ、依存関係、メモを編集できます。
+- タスクの `UID` は `Task Add` 時に `YYYYMMDDHHmmss` 形式で自動生成されます。
+- メモ欄は Markdown のライブレンダリングに対応しています。
+- モーダルからタスクを削除できます。
+
+## ガントチャート操作
+
+- タスクバーをドラッグすると、開始日と期限日をまとめて移動できます。
+- タスクバー左右のハンドルをドラッグすると、開始日または期限日を変更できます。
+- ガントチャートの空白部分をダブルクリックすると、その行と日付に合わせてタスクを追加できます。
+- 依存関係は矢印付きの線で表示されます。
+- 親子関係は点線のガイドで表示されます。
+- 進捗率の位置をタスク間でつなぐ稲妻線を表示できます。
+
+## Obsidian Vault 連携
+
+`Task Add` 以外の Vault 操作は、左上の `⋮` メニューにまとめています。
+
+- `Vault`: Obsidian Vault フォルダを選択します。
+- Vault 選択時に、Vault 内の Markdown ファイルを読み込んでタスクへ反映します。
+- `Vault Off`: 現在の Vault 接続を解除します。
+- `Export`: 各タスクを Markdown ファイルとして Vault に保存します。
+- `Import Tag`: Vault 内の `#task` 付き Markdown ノートをタスクとして取り込みます。
+- `Import File`: 選択した 1 つの Markdown ファイルからタスクを取り込みます。
+- `Clear Tasks`: すべてのタスクを削除します。
+- Vault 選択後は、タスクの追加、削除、修正が Markdown ファイルへデバウンス付きで自動同期されます。
+- Taskkanri が管理する Markdown ファイルは、削除やタグ変更に合わせて同期されます。
+
+## Markdown ファイルの保存ルール
+
+- ファイル名は `<タスクNo>_<タスク名>.md` 形式です。
+- タグをフォルダ階層として扱います。
+- たとえば `#task/core` が付いた `設計確認` というタスク No 1 は、`task/core/1_設計確認.md` として保存されます。
+- タグがないタスクは `NoTag/` 配下に保存されます。
+- Windows でファイル名に使えない文字は保存時に除去されます。
+
+## 対応している Markdown 取り込み形式
+
+- Taskkanri が出力した frontmatter 付き Markdown ノート
+- Obsidian などで使うチェックリスト形式のタスク行
+
+例:
+
+```md
+- [ ] タスク名 #task 2026-04-30
+```
+
+Markdown 読み込み時は UTF-8 に加えて、日本語環境で使われる Shift_JIS / EUC-JP / ISO-2022-JP もフォールバックとして試します。
+
+## 技術スタック
 
 - Electron
-- React (Vite)
-- Plain SVG overlays for dependency/progress lines
+- React
+- Vite
+- SVG オーバーレイによる依存関係線と進捗線の描画
 
-## Run
+## 開発環境での起動
 
 ```bash
 npm install
 npm run dev
 ```
 
-- Vite dev server starts on `http://127.0.0.1:5173`.
-- Electron launches automatically and loads the React app.
+- Vite 開発サーバーが `http://127.0.0.1:5173` で起動します。
+- Electron が自動的に起動し、React アプリを読み込みます。
 
-## Build
+## ビルド
 
 ```bash
 npm run build
 ```
 
-## Start desktop app from built files
+## ビルド済みファイルからデスクトップアプリを起動
 
 ```bash
 npm run start
 ```
 
-## Notes
+## Windows 向け portable 版の作成
 
-- Task data is persisted with `localStorage` on the renderer side.
-- Vault sync is bidirectional through markdown files (`Import` / `Export` + auto-save on task edits).
-- Obsidian line task format supported: `- [ ] <task name> #task <due date>`.
-- Markdown import decoding supports UTF-8 and common Japanese encodings (Shift_JIS/EUC-JP/ISO-2022-JP fallback).
-- If you need a production desktop package, the next step is adding `electron-builder` or `electron-forge`.
+```bash
+npm run build:win
+```
+
+生成物は `release/` 配下に出力されます。
+
+## 補足
+
+- タスクデータは renderer 側の `localStorage` に保存されます。
+- Vault パス、左右ペイン幅、タグ色も `localStorage` に保存されます。
+- Vault 連携は Markdown ファイルを介して行います。
+- `Import` / `Export` に加えて、Vault 選択中はタスク編集時の自動保存も行います。

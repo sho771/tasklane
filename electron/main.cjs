@@ -61,6 +61,67 @@ function toPosixPath(inputPath) {
   return inputPath.replace(/\\/g, '/');
 }
 
+function splitFrontmatter(content) {
+  const normalized = String(content || '').replace(/\r\n/g, '\n');
+  if (!normalized.startsWith('---\n')) {
+    return { frontmatter: '', body: normalized };
+  }
+
+  const end = normalized.indexOf('\n---\n', 4);
+  if (end === -1) {
+    return { frontmatter: '', body: normalized };
+  }
+
+  return {
+    frontmatter: normalized.slice(4, end),
+    body: normalized.slice(end + 5)
+  };
+}
+
+function parseMetaValue(value) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return '';
+  }
+  if (raw === 'true') {
+    return true;
+  }
+  if (raw === 'false') {
+    return false;
+  }
+  if (raw === 'null') {
+    return null;
+  }
+  if (/^-?\d+(\.\d+)?$/.test(raw)) {
+    return Number(raw);
+  }
+  return raw.replace(/^["']|["']$/g, '');
+}
+
+function parseFrontmatterBlock(frontmatter) {
+  const meta = {};
+  String(frontmatter || '')
+    .split('\n')
+    .forEach((line) => {
+      const index = line.indexOf(':');
+      if (index <= 0) {
+        return;
+      }
+      const key = line.slice(0, index).trim();
+      const value = line.slice(index + 1).trim();
+      if (key) {
+        meta[key] = parseMetaValue(value);
+      }
+    });
+  return meta;
+}
+
+function isTaskkanriMarkdown(content) {
+  const { frontmatter } = splitFrontmatter(content);
+  const meta = parseFrontmatterBlock(frontmatter);
+  return Boolean(meta.taskkanri);
+}
+
 function decodeMarkdownBuffer(buffer) {
   const decoders = [
     () => new TextDecoder('utf-8', { fatal: true }).decode(buffer),
@@ -233,6 +294,50 @@ ipcMain.handle('vault:write-markdown-files', async (_event, payload) => {
   }
 
   return { writtenCount: written.length, writtenPaths: written };
+});
+
+ipcMain.handle('vault:sync-markdown-files', async (_event, payload) => {
+  const vaultPath = payload && typeof payload.vaultPath === 'string' ? payload.vaultPath : '';
+  const files = payload && Array.isArray(payload.files) ? payload.files : [];
+  const deleteStaleManaged = Boolean(payload && payload.deleteStaleManaged);
+
+  if (!vaultPath.trim()) {
+    throw new Error('vaultPath is required');
+  }
+
+  const resolvedVault = path.resolve(vaultPath);
+  await fs.mkdir(resolvedVault, { recursive: true });
+
+  const written = [];
+  const activePaths = new Set();
+  for (const file of files) {
+    const relativePath = file && typeof file.relativePath === 'string' ? toPosixPath(file.relativePath.trim()) : '';
+    if (!relativePath || !relativePath.toLowerCase().endsWith('.md')) {
+      continue;
+    }
+
+    const content = file && typeof file.content === 'string' ? file.content : '';
+    const targetPath = resolveAndValidatePath(resolvedVault, relativePath);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(targetPath, content, 'utf8');
+    written.push(relativePath);
+    activePaths.add(relativePath);
+  }
+
+  const deleted = [];
+  if (deleteStaleManaged) {
+    const markdownFiles = await collectMarkdownFiles(resolvedVault);
+    for (const file of markdownFiles) {
+      if (activePaths.has(file.relativePath) || !isTaskkanriMarkdown(file.content)) {
+        continue;
+      }
+      const targetPath = resolveAndValidatePath(resolvedVault, file.relativePath);
+      await fs.unlink(targetPath);
+      deleted.push(file.relativePath);
+    }
+  }
+
+  return { writtenCount: written.length, writtenPaths: written, deletedCount: deleted.length, deletedPaths: deleted };
 });
 
 ipcMain.on('renderer:log', (_event, payload) => {

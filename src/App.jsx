@@ -354,13 +354,33 @@ function getPathBaseName(inputPath) {
   return parts.length > 0 ? parts[parts.length - 1] : '';
 }
 
-function slugifyFileName(input) {
-  const slug = String(input || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
-  return slug || 'task';
+function sanitizePathSegment(input, fallback = 'task') {
+  const value = String(input || '')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '')
+    .slice(0, 80);
+  return value || fallback;
+}
+
+function getTaskFolderPath(task) {
+  const primaryTag = getPrimaryTagPath(task);
+  if (primaryTag === UNTAGGED_KEY) {
+    return 'NoTag';
+  }
+  return primaryTag
+    .split('/')
+    .filter(Boolean)
+    .map((part) => sanitizePathSegment(part, 'tag'))
+    .join('/');
+}
+
+function getTaskMarkdownRelativePath(task) {
+  const folderPath = getTaskFolderPath(task);
+  const taskNo = Number.isInteger(Number(task.id)) && Number(task.id) > 0 ? Number(task.id) : 'task';
+  const taskName = sanitizePathSegment(task.name, `Task ${taskNo}`);
+  return `${folderPath}/${taskNo}_${taskName}.md`;
 }
 
 function quoteMetaValue(value) {
@@ -385,6 +405,7 @@ function buildTaskMarkdown(task) {
     `end: ${task.end}`,
     `progress: ${clamp(Number(task.progress) || 0, 0, 100)}`,
     `tags: ${JSON.stringify(tags)}`,
+    `parentId: ${task.parentId == null ? 'null' : Number(task.parentId)}`,
     `dependsOn: [${depends.join(', ')}]`,
     '---',
     '',
@@ -397,11 +418,13 @@ function buildTaskMarkdown(task) {
 function buildTaskMarkdownFiles(tasks) {
   const usedNames = new Set();
   return tasks.map((task) => {
-    const safeBase = `${String(task.id).padStart(4, '0')}-${slugifyFileName(task.name)}`;
+    const safePath = getTaskMarkdownRelativePath(task);
+    const dotIndex = safePath.toLowerCase().lastIndexOf('.md');
+    const safeBase = dotIndex >= 0 ? safePath.slice(0, dotIndex) : safePath;
     let fileName = `${safeBase}.md`;
     let suffix = 2;
     while (usedNames.has(fileName)) {
-      fileName = `${safeBase}-${suffix}.md`;
+      fileName = `${safeBase}_${suffix}.md`;
       suffix += 1;
     }
     usedNames.add(fileName);
@@ -1731,6 +1754,86 @@ function App() {
     showVaultStatus('All tasks deleted.');
   };
 
+  const syncTasksToVault = async (targetVaultPath, targetTasks, options = {}) => {
+    const api = getDesktopApi();
+    if (!targetVaultPath || !api) {
+      return { writtenCount: 0, deletedCount: 0 };
+    }
+
+    const files = buildTaskMarkdownFiles(targetTasks);
+    if (typeof api.syncMarkdownFiles === 'function') {
+      return api.syncMarkdownFiles(targetVaultPath, files, {
+        deleteStaleManaged: Boolean(options.deleteStaleManaged)
+      });
+    }
+    const result = await api.writeMarkdownFiles(targetVaultPath, files);
+    return { ...result, deletedCount: 0 };
+  };
+
+  const replaceTasksWithImportedRecords = (records) => {
+    if (!Array.isArray(records) || records.length === 0) {
+      return { importedCount: 0 };
+    }
+
+    let importedCount = 0;
+    const next = [];
+    const usedIds = new Set();
+    let maxId = 0;
+
+    records.forEach((parsed) => {
+      if (!parsed || typeof parsed !== 'object') {
+        return;
+      }
+
+      const incomingId = Number(parsed.id);
+      let resolvedId = Number.isInteger(incomingId) && incomingId > 0 && !usedIds.has(incomingId)
+        ? incomingId
+        : null;
+      if (!resolvedId) {
+        resolvedId = maxId + 1;
+        while (usedIds.has(resolvedId)) {
+          resolvedId += 1;
+        }
+      }
+
+      const normalized = normalizeTask({
+        ...parsed,
+        id: resolvedId
+      }, resolvedId);
+      next.push(normalized);
+      usedIds.add(normalized.id);
+      maxId = Math.max(maxId, normalized.id);
+      importedCount += 1;
+    });
+
+    idRef.current = Math.max(maxId + 1, 1);
+    setTasks(next);
+    return { importedCount };
+  };
+
+  const loadTasksFromVaultPath = async (targetVaultPath) => {
+    const api = getDesktopApi();
+    if (!api) {
+      showVaultStatus('Vault API is unavailable.');
+      return { importedCount: 0 };
+    }
+
+    const result = await api.listMarkdownFiles({ vaultPath: targetVaultPath });
+    const files = Array.isArray(result.files) ? result.files : [];
+    const parsedRecords = files.flatMap((file) => {
+      if (!file || typeof file.relativePath !== 'string' || typeof file.content !== 'string') {
+        return [];
+      }
+      return parseTasksFromMarkdown(file.content, file.relativePath);
+    });
+
+    if (parsedRecords.length === 0) {
+      return { importedCount: 0 };
+    }
+
+    return replaceTasksWithImportedRecords(parsedRecords);
+  };
+
   const showVaultStatus = (message) => {
     setVaultStatus(message);
     if (statusTimerRef.current) {
@@ -1752,11 +1855,20 @@ function App() {
     try {
       const result = await api.selectVaultFolder();
       if (result && !result.canceled && result.path) {
+        setIsVaultBusy(true);
         setVaultPath(result.path);
-        showVaultStatus(`Vault selected: ${getPathBaseName(result.path)}`);
+        const { importedCount } = await loadTasksFromVaultPath(result.path);
+        const vaultName = getPathBaseName(result.path);
+        if (importedCount > 0) {
+          showVaultStatus(`Vault selected: ${vaultName}. Loaded ${importedCount} tasks.`);
+        } else {
+          showVaultStatus(`Vault selected: ${vaultName}. No task markdown found.`);
+        }
       }
     } catch (error) {
       showVaultStatus(`Failed to select vault: ${error.message}`);
+    } finally {
+      setIsVaultBusy(false);
     }
   };
 
@@ -1773,9 +1885,9 @@ function App() {
 
     setIsVaultBusy(true);
     try {
-      const files = buildTaskMarkdownFiles(tasks);
-      const result = await api.writeMarkdownFiles(vaultPath, files);
-      showVaultStatus(`Exported ${result.writtenCount} tasks to ${getPathBaseName(vaultPath)}/Taskkanri`);
+      const result = await syncTasksToVault(vaultPath, tasks, { deleteStaleManaged: true });
+      const deletedText = result.deletedCount ? ` / Deleted ${result.deletedCount}` : '';
+      showVaultStatus(`Exported ${result.writtenCount}${deletedText} tasks to ${getPathBaseName(vaultPath)}`);
     } catch (error) {
       showVaultStatus(`Export failed: ${error.message}`);
     } finally {
@@ -1944,8 +2056,7 @@ function App() {
 
     autoSyncTimerRef.current = window.setTimeout(async () => {
       try {
-        const files = buildTaskMarkdownFiles(tasks);
-        await api.writeMarkdownFiles(vaultPath, files);
+        await syncTasksToVault(vaultPath, tasks, { deleteStaleManaged: true });
       } catch (error) {
         showVaultStatus(`Auto-save failed: ${error.message}`);
       } finally {
