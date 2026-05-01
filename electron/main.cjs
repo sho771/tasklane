@@ -202,6 +202,30 @@ function resolveAndValidatePath(rootDir, relativePath) {
   return resolvedTarget;
 }
 
+async function removeEmptyParentDirectories(rootDir, startPath) {
+  const resolvedRoot = path.resolve(rootDir);
+  let currentDir = path.dirname(startPath);
+
+  while (currentDir && currentDir !== resolvedRoot) {
+    const relative = path.relative(resolvedRoot, currentDir);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      return;
+    }
+
+    try {
+      await fs.rmdir(currentDir);
+    } catch (error) {
+      if (error && error.code === 'ENOENT') {
+        currentDir = path.dirname(currentDir);
+        continue;
+      }
+      return;
+    }
+
+    currentDir = path.dirname(currentDir);
+  }
+}
+
 ipcMain.handle('vault:select-folder', async () => {
   const result = await dialog.showOpenDialog(getWindowForDialog(), {
     title: 'Select Obsidian Vault Folder',
@@ -340,6 +364,7 @@ ipcMain.handle('vault:sync-markdown-files', async (_event, payload) => {
       }
       const targetPath = resolveAndValidatePath(resolvedVault, file.relativePath);
       await fs.unlink(targetPath);
+      await removeEmptyParentDirectories(resolvedVault, targetPath);
       deleted.push(file.relativePath);
     }
   }

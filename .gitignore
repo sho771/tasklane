@@ -5,3 +5,5 @@ build/icon-*.png
 .gitignore
 .codex
 .DS_Store
+design/icon-proposals/01-lane-check.svg
+design/icon-proposals/02-note-gantt.svg

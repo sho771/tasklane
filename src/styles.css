@@ -838,6 +838,20 @@ body.split-dragging {
   min-width: 0;
 }
 
+.task-bar.is-short .chart-task-title {
+  display: none;
+}
+
+.task-bar.is-tiny .chart-task-no,
+.task-bar.is-tiny .chart-task-title {
+  display: none;
+}
+
+.task-bar.is-short .task-name-button,
+.task-bar.is-tiny .task-name-button {
+  padding: 0;
+}
+
 .task-bar .chart-status-dot {
   width: 7px;
   height: 7px;
@@ -865,18 +879,19 @@ body.split-dragging {
   position: absolute;
   top: 3px;
   bottom: 3px;
-  width: 7px;
+  width: 12px;
   border-radius: 6px;
   background: rgba(23, 46, 45, 0.33);
+  z-index: 5;
 }
 
 .handle.left {
-  left: 1px;
+  left: 0;
   cursor: ew-resize;
 }
 
 .handle.right {
-  right: 1px;
+  right: 0;
   cursor: ew-resize;
 }
 

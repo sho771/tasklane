@@ -831,7 +831,7 @@ function buildTaskMarkdownFiles(tasks) {
     }
     usedNames.add(fileName);
     return {
-      relativePath: `Taskkanri/${fileName}`,
+      relativePath: fileName,
       content: buildTaskMarkdown(task)
     };
   });
@@ -3037,10 +3037,13 @@ function App() {
                 }
                 const lagging = parseDateKey(task.end) < parseDateKey(today) && task.progress < 100;
                 const isOverdue = parseDateKey(task.end) < parseDateKey(today) && taskStatus !== 'done';
+                const barSizeClass = position.width < 44
+                  ? 'is-tiny'
+                  : (position.width < 72 ? 'is-short' : '');
                 return (
                   <div className="row-wrap" key={task.id}>
                     <div
-                      className={`task-bar status-${taskStatus} ${lagging ? 'lagging' : ''}`}
+                      className={`task-bar status-${taskStatus} ${lagging ? 'lagging' : ''} ${barSizeClass}`}
                       style={{
                         left: `${position.startX}px`,
                         top: `${position.top}px`,

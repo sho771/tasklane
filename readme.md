@@ -33,6 +33,13 @@
 - Electron の標準メニューを非表示にしました。
 - Windows ビルド時の同梱言語を日本語と英語に絞り、不要な依存同梱を抑えました。
 
+## v0.2.1 の主な変更点
+
+- アプリ名を Tasklane に変更しました。
+- アプリ用アイコンを見直しました。
+- 短い期間のチャートバーでも左右端をドラッグしやすくしました。
+- Vault 同期時に `Taskkanri/` フォルダを作成せず、Vault 直下のタグフォルダへ保存するようにしました。
+
 ## タスク操作
 
 - タスク名またはタスク No をクリックすると詳細モーダルを開けます。
@@ -90,7 +97,7 @@ Notes は Markdown ソースを保持したまま編集します。
 - `Import File`: 選択した 1 つの Markdown ファイルからタスクを取り込みます。
 - `Clear Tasks`: すべてのタスクを削除します。
 - Vault 選択後は、タスクの追加、削除、修正が Markdown ファイルへデバウンス付きで自動同期されます。
-- Taskkanri が管理する Markdown ファイルは、削除やタグ変更に合わせて同期されます。
+- Tasklane が管理する Markdown ファイルは、削除やタグ変更に合わせて同期されます。
 
 ## Markdown ファイルの保存ルール
 
@@ -102,7 +109,7 @@ Notes は Markdown ソースを保持したまま編集します。
 
 ## 対応している Markdown 取り込み形式
 
-- Taskkanri が出力した frontmatter 付き Markdown ノート
+- Tasklane が出力した frontmatter 付き Markdown ノート
 - Obsidian などで使うチェックリスト形式のタスク行
 
 例:
