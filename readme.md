@@ -1,4 +1,4 @@
-# Taskkanri Desktop (Electron + React)
+# Tasklane (Electron + React)
 
 タスク一覧とインタラクティブなガントチャートを備えたデスクトップ向けタスク管理ツールです。
 

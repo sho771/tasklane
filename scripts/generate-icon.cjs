@@ -213,26 +213,38 @@ function encodePng(width, height, rgba) {
 
 function drawIcon(size) {
   const surface = createSurface(size);
-  const top = hexToRgb('#35aa91');
-  const bottom = hexToRgb('#1f5967');
-  const white = { r: 255, g: 255, b: 255, a: 246 };
-  const cardBottom = hexToRgb('#edf7f4');
+  const top = hexToRgb('#f4b34d');
+  const bottom = hexToRgb('#2a9d8f');
+  const surfaceTop = hexToRgb('#fffdf7');
+  const surfaceBottom = hexToRgb('#eef9f6');
+  const grid = hexToRgb('#d8e7e3');
+  const teal = hexToRgb('#2a9d8f');
+  const blue = hexToRgb('#2f6fb8');
+  const amber = hexToRgb('#f4b34d');
+  const check = hexToRgb('#24776d');
 
-  fillRoundedRect(surface, 18, 18, 220, 220, 50, (y) => ({
+  fillRoundedRect(surface, 18, 18, 220, 220, 46, (y) => ({
     ...mixColor(top, bottom, clamp((y - 18) / 220, 0, 1)),
     a: 255
   }));
-  fillRoundedRect(surface, 56, 44, 144, 168, 24, (y) => ({
-    ...mixColor(white, cardBottom, clamp((y - 44) / 168, 0, 1)),
-    a: 246
+  fillRoundedRect(surface, 50, 54, 156, 148, 28, (y) => ({
+    ...mixColor(surfaceTop, surfaceBottom, clamp((y - 54) / 148, 0, 1)),
+    a: 255
   }));
 
-  fillLine(surface, 92, 86, 104, 98, 12, { r: 35, g: 136, b: 117, a: 255 });
-  fillLine(surface, 104, 98, 128, 70, 12, { r: 35, g: 136, b: 117, a: 255 });
-  fillRoundedRect(surface, 132, 76, 42, 14, 7, { r: 44, g: 91, b: 154, a: 255 });
-  fillRoundedRect(surface, 88, 122, 82, 14, 7, { r: 180, g: 48, b: 48, a: 255 });
-  fillRoundedRect(surface, 88, 158, 54, 14, 7, { r: 47, g: 123, b: 76, a: 255 });
-  fillCircle(surface, 178, 165, 8, { r: 47, g: 123, b: 76, a: 255 });
+  fillLine(surface, 50, 95, 206, 95, 10, { ...grid, a: 255 });
+  fillLine(surface, 89, 65, 89, 191, 10, { ...grid, a: 255 });
+  fillLine(surface, 128, 65, 128, 191, 10, { ...grid, a: 255 });
+  fillLine(surface, 167, 65, 167, 191, 10, { ...grid, a: 255 });
+
+  fillLine(surface, 72, 151, 122, 151, 16, { ...teal, a: 255 });
+  fillLine(surface, 117, 119, 184, 119, 16, { ...blue, a: 255 });
+  fillCircle(surface, 72, 151, 12, { ...teal, a: 255 });
+  fillCircle(surface, 117, 119, 12, { ...blue, a: 255 });
+  fillCircle(surface, 184, 119, 12, { ...amber, a: 255 });
+  fillLine(surface, 76, 151, 117, 119, 8, { ...amber, a: 255 });
+  fillLine(surface, 151, 159, 163, 171, 12, { ...check, a: 255 });
+  fillLine(surface, 163, 171, 188, 139, 12, { ...check, a: 255 });
 
   return encodePng(size, size, downsample(surface));
 }
