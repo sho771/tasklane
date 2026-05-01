@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Taskkanri icon">
+  <defs>
+    <linearGradient id="bg" x1="48" y1="24" x2="208" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#35aa91"/>
+      <stop offset="1" stop-color="#1f5967"/>
+    </linearGradient>
+    <linearGradient id="card" x1="66" y1="48" x2="190" y2="210" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#edf7f4"/>
+    </linearGradient>
+  </defs>
+  <rect x="18" y="18" width="220" height="220" rx="50" fill="url(#bg)"/>
+  <rect x="56" y="44" width="144" height="168" rx="24" fill="url(#card)" opacity="0.96"/>
+  <path d="M92 86l12 12 24-28" fill="none" stroke="#238875" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="132" y="76" width="42" height="14" rx="7" fill="#2c5b9a"/>
+  <rect x="88" y="122" width="82" height="14" rx="7" fill="#b43030"/>
+  <rect x="88" y="158" width="54" height="14" rx="7" fill="#2f7b4c"/>
+  <circle cx="178" cy="165" r="8" fill="#2f7b4c"/>
+</svg>

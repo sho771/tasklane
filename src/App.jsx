@@ -1,57 +1,42 @@
+import { markdown as codeMirrorMarkdown } from '@codemirror/lang-markdown';
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { css } from '@codemirror/lang-css';
+import { html } from '@codemirror/lang-html';
+import { javascript } from '@codemirror/lang-javascript';
+import { json } from '@codemirror/lang-json';
+import { markdown as markdownCodeLanguage } from '@codemirror/lang-markdown';
+import { php } from '@codemirror/lang-php';
+import { python } from '@codemirror/lang-python';
+import { sql } from '@codemirror/lang-sql';
+import { HighlightStyle, LanguageDescription, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
+import { EditorState } from '@codemirror/state';
 import {
-  MDXEditor,
-  addComposerChild$,
-  addNestedEditorChild$,
-  addTableCellEditorChild$,
-  codeBlockPlugin,
-  headingsPlugin,
-  linkDialogPlugin,
-  linkPlugin,
-  listsPlugin,
-  quotePlugin,
-  realmPlugin,
-  tablePlugin,
-  thematicBreakPlugin
-} from '@mdxeditor/editor';
-import {
-  BOLD_ITALIC_STAR,
-  BOLD_ITALIC_UNDERSCORE,
-  BOLD_STAR,
-  BOLD_UNDERSCORE,
-  CHECK_LIST,
-  HEADING,
-  INLINE_CODE,
-  ITALIC_STAR,
-  ITALIC_UNDERSCORE,
-  LINK,
-  ORDERED_LIST,
-  QUOTE,
-  UNORDERED_LIST
-} from '@lexical/markdown';
-import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin';
-import { $insertList } from '@lexical/list';
-import {
-  $getSelection,
-  $isRangeSelection,
-  $isTextNode,
-  COMMAND_PRIORITY_HIGH,
-  CONTROLLED_TEXT_INSERTION_COMMAND,
-  KEY_DOWN_COMMAND
-} from 'lexical';
-import { forwardRef, Fragment, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import '@mdxeditor/editor/style.css';
+  Decoration,
+  EditorView,
+  ViewPlugin,
+  WidgetType,
+  highlightActiveLine,
+  keymap,
+  lineNumbers,
+  placeholder as codeMirrorPlaceholder
+} from '@codemirror/view';
+import { powerShell } from '@codemirror/legacy-modes/mode/powershell';
+import { shell } from '@codemirror/legacy-modes/mode/shell';
+import { tags } from '@lezer/highlight';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TASK_ROW_HEIGHT = 52;
 const GROUP_ROW_HEIGHT = 36;
 const BAR_HEIGHT = 30;
+const AGGREGATE_BAR_HEIGHT = 20;
 const COL_WIDTH = 36;
 const STORAGE_KEY = 'taskkanri.desktop.v1';
 const SPLIT_KEY = 'taskkanri.desktop.splitWidth.v1';
 const VAULT_PATH_KEY = 'taskkanri.desktop.vaultPath.v1';
 const TAG_COLORS_KEY = 'taskkanri.desktop.tagColors.v1';
 const LEGACY_GROUP_COLORS_KEY = 'taskkanri.desktop.groupColors.v1';
+const THEME_KEY = 'taskkanri.desktop.theme.v1';
 const IMPORT_TAG = '#task';
 const UNTAGGED_KEY = '__untagged__';
 const STATUS_OPTIONS = [
@@ -82,126 +67,362 @@ const STATUS_FILTER_OPTIONS = [
   ...STATUS_OPTIONS
 ];
 
-const TASKKANRI_UNORDERED_LIST = {
-  ...UNORDERED_LIST,
-  regExp: /^(\s*)[-*+]\s(?=\S)(?!\[)/
-};
-
-const TASKKANRI_MARKDOWN_SHORTCUT_TRANSFORMERS = [
-  BOLD_ITALIC_STAR,
-  BOLD_ITALIC_UNDERSCORE,
-  BOLD_STAR,
-  BOLD_UNDERSCORE,
-  INLINE_CODE,
-  ITALIC_STAR,
-  ITALIC_UNDERSCORE,
-  HEADING,
-  QUOTE,
-  LINK,
-  CHECK_LIST,
-  TASKKANRI_UNORDERED_LIST,
-  ORDERED_LIST
+const taskkanriCodeLanguages = [
+  LanguageDescription.of({
+    name: 'JavaScript',
+    alias: ['js', 'javascript', 'mjs', 'cjs'],
+    extensions: ['js', 'mjs', 'cjs'],
+    support: javascript()
+  }),
+  LanguageDescription.of({
+    name: 'TypeScript',
+    alias: ['ts', 'typescript'],
+    extensions: ['ts'],
+    support: javascript({ typescript: true })
+  }),
+  LanguageDescription.of({
+    name: 'JSX',
+    alias: ['jsx', 'react'],
+    extensions: ['jsx'],
+    support: javascript({ jsx: true })
+  }),
+  LanguageDescription.of({
+    name: 'TSX',
+    alias: ['tsx', 'typescriptreact'],
+    extensions: ['tsx'],
+    support: javascript({ jsx: true, typescript: true })
+  }),
+  LanguageDescription.of({
+    name: 'CSS',
+    alias: ['css'],
+    extensions: ['css'],
+    support: css()
+  }),
+  LanguageDescription.of({
+    name: 'HTML',
+    alias: ['html', 'htm'],
+    extensions: ['html', 'htm'],
+    support: html()
+  }),
+  LanguageDescription.of({
+    name: 'JSON',
+    alias: ['json', 'jsonc'],
+    extensions: ['json'],
+    support: json()
+  }),
+  LanguageDescription.of({
+    name: 'Python',
+    alias: ['py', 'python'],
+    extensions: ['py'],
+    support: python()
+  }),
+  LanguageDescription.of({
+    name: 'SQL',
+    alias: ['sql', 'postgres', 'postgresql', 'mysql', 'sqlite'],
+    extensions: ['sql'],
+    support: sql()
+  }),
+  LanguageDescription.of({
+    name: 'PHP',
+    alias: ['php'],
+    extensions: ['php'],
+    support: php()
+  }),
+  LanguageDescription.of({
+    name: 'Markdown',
+    alias: ['md', 'markdown'],
+    extensions: ['md', 'markdown'],
+    support: markdownCodeLanguage()
+  })
 ];
-const TASKKANRI_LIST_TRANSFORMERS = new Set([CHECK_LIST, TASKKANRI_UNORDERED_LIST, ORDERED_LIST]);
 
-function TaskkanriDeferredListShortcut() {
-  const [editor] = useLexicalComposerContext();
+const taskkanriShellLanguage = StreamLanguage.define(shell);
+const taskkanriPowerShellLanguage = StreamLanguage.define(powerShell);
 
-  const transformPendingBulletList = (insertedText) => {
-    if (!insertedText || insertedText.startsWith('[')) {
-      return false;
-    }
-
-    let shouldTransform = false;
-    editor.getEditorState().read(() => {
-      const selection = $getSelection();
-      if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
-        return;
-      }
-      const anchor = selection.anchor;
-      const node = anchor.getNode();
-      if (!$isTextNode(node)) {
-        return;
-      }
-      shouldTransform = /^[-*+]\s$/.test(node.getTextContent()) && anchor.offset === 2;
-    });
-
-    if (!shouldTransform) {
-      return false;
-    }
-
-    editor.update(() => {
-      const selection = $getSelection();
-      if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
-        return;
-      }
-      const node = selection.anchor.getNode();
-      if (!$isTextNode(node) || !/^[-*+]\s$/.test(node.getTextContent())) {
-        return;
-      }
-      node.setTextContent('');
-      node.selectEnd();
-      $insertList('bullet');
-      const nextSelection = $getSelection();
-      if ($isRangeSelection(nextSelection)) {
-        nextSelection.insertText(insertedText);
-      }
-    });
-    return true;
-  };
-
-  useEffect(() => editor.registerCommand(
-    KEY_DOWN_COMMAND,
-    (event) => {
-      if (
-        event.key.length !== 1
-        || event.key === '['
-        || event.ctrlKey
-        || event.metaKey
-        || event.altKey
-      ) {
-        return false;
-      }
-
-      if (!transformPendingBulletList(event.key)) {
-        return false;
-      }
-
-      event.preventDefault();
-      return true;
-    },
-    COMMAND_PRIORITY_HIGH
-  ), [editor]);
-
-  useEffect(() => editor.registerCommand(
-    CONTROLLED_TEXT_INSERTION_COMMAND,
-    (payload) => {
-      const insertedText = typeof payload === 'string'
-        ? payload
-        : (payload && typeof payload.data === 'string' ? payload.data : '');
-      return transformPendingBulletList(insertedText);
-    },
-    COMMAND_PRIORITY_HIGH
-  ), [editor]);
-
-  return null;
+function taskkanriCodeLanguage(info) {
+  const languageName = String(info || '').trim().split(/\s+/, 1)[0].toLowerCase();
+  if (!languageName) {
+    return null;
+  }
+  if (['bash', 'sh', 'shell', 'zsh'].includes(languageName)) {
+    return taskkanriShellLanguage;
+  }
+  if (['ps1', 'powershell', 'pwsh'].includes(languageName)) {
+    return taskkanriPowerShellLanguage;
+  }
+  return LanguageDescription.matchLanguageName(taskkanriCodeLanguages, languageName, true);
 }
 
-const taskkanriMarkdownShortcutPlugin = realmPlugin({
-  init(realm) {
-    realm.pubIn({
-      [addComposerChild$]: [
-        () => <MarkdownShortcutPlugin transformers={TASKKANRI_MARKDOWN_SHORTCUT_TRANSFORMERS} />,
-        TaskkanriDeferredListShortcut
-      ],
-      [addNestedEditorChild$]: () => <MarkdownShortcutPlugin transformers={TASKKANRI_MARKDOWN_SHORTCUT_TRANSFORMERS} />,
-      [addTableCellEditorChild$]: () => (
-        <MarkdownShortcutPlugin
-          transformers={TASKKANRI_MARKDOWN_SHORTCUT_TRANSFORMERS.filter((transformer) => !TASKKANRI_LIST_TRANSFORMERS.has(transformer))}
-        />
-      )
-    });
+const taskkanriMarkdownHighlight = HighlightStyle.define([
+  { tag: tags.heading1, fontSize: '1.28em', fontWeight: '700', color: '#a6e22e' },
+  { tag: tags.heading2, fontSize: '1.16em', fontWeight: '700', color: '#a6e22e' },
+  { tag: tags.heading3, fontSize: '1.06em', fontWeight: '700', color: '#a6e22e' },
+  { tag: tags.strong, fontWeight: '700', color: '#f8f8f2' },
+  { tag: tags.emphasis, fontStyle: 'italic', color: '#f8f8f2' },
+  { tag: tags.strikethrough, textDecoration: 'line-through' },
+  { tag: tags.monospace, color: '#e6db74', backgroundColor: 'rgba(248, 248, 242, 0.08)' },
+  { tag: tags.link, color: '#66d9ef', textDecoration: 'underline' },
+  { tag: tags.url, color: '#e6db74' },
+  { tag: tags.quote, color: '#75715e', fontStyle: 'italic' },
+  { tag: tags.processingInstruction, color: '#75715e' },
+  { tag: tags.contentSeparator, color: '#75715e' },
+  { tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword, tags.moduleKeyword], color: '#f92672', fontWeight: '600' },
+  { tag: [tags.atom, tags.bool, tags.null], color: '#ae81ff' },
+  { tag: [tags.string, tags.character, tags.attributeValue], color: '#e6db74' },
+  { tag: [tags.number, tags.integer, tags.float], color: '#ae81ff' },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment, tags.docComment], color: '#75715e', fontStyle: 'italic' },
+  { tag: [tags.variableName, tags.name], color: '#f8f8f2' },
+  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: '#a6e22e' },
+  { tag: [tags.definition(tags.variableName), tags.definition(tags.propertyName)], color: '#a6e22e', fontWeight: '600' },
+  { tag: [tags.typeName, tags.className], color: '#66d9ef', fontStyle: 'italic' },
+  { tag: tags.tagName, color: '#f92672' },
+  { tag: [tags.propertyName, tags.attributeName, tags.labelName], color: '#a6e22e' },
+  { tag: [tags.operator, tags.operatorKeyword, tags.compareOperator, tags.logicOperator, tags.arithmeticOperator], color: '#f92672' },
+  { tag: [tags.punctuation, tags.bracket, tags.separator], color: '#f8f8f2' },
+  { tag: tags.invalid, color: '#b43030', textDecoration: 'underline' }
+]);
+
+class MarkdownMarkerWidget extends WidgetType {
+  constructor(text, className, checkboxFrom = null, checked = false) {
+    super();
+    this.text = text;
+    this.className = className;
+    this.checkboxFrom = checkboxFrom;
+    this.checked = checked;
   }
+
+  eq(other) {
+    return other.text === this.text
+      && other.className === this.className
+      && other.checkboxFrom === this.checkboxFrom
+      && other.checked === this.checked;
+  }
+
+  toDOM(view) {
+    if (this.checkboxFrom != null) {
+      const input = document.createElement('input');
+      input.className = this.className;
+      input.type = 'checkbox';
+      input.checked = this.checked;
+      input.setAttribute('aria-label', this.checked ? 'Mark as incomplete' : 'Mark as complete');
+      input.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        view.dispatch({
+          changes: {
+            from: this.checkboxFrom,
+            to: this.checkboxFrom + 1,
+            insert: this.checked ? ' ' : 'x'
+          },
+          userEvent: 'input'
+        });
+        view.focus();
+      });
+      return input;
+    }
+
+    const element = document.createElement('span');
+    element.className = this.className;
+    element.textContent = this.text;
+    element.setAttribute('aria-hidden', 'true');
+    return element;
+  }
+
+  ignoreEvent(event) {
+    return event.type !== 'click';
+  }
+}
+
+function isLineInSelection(view, line) {
+  return view.state.selection.ranges.some((range) => (
+    range.from <= line.to && range.to >= line.from
+  ));
+}
+
+function addInlineMarkdownDecorations(ranges, line, isSourceLine) {
+  const lineText = line.text;
+  const add = (from, to, className) => {
+    if (to > from) {
+      ranges.push(Decoration.mark({ class: className }).range(line.from + from, line.from + to));
+    }
+  };
+  const addMarkup = (from, to) => {
+    add(from, to, isSourceLine ? 'cm-md-markup' : 'cm-md-hidden-markup');
+  };
+
+  const patterns = [
+    { regex: /(\*\*|__)([^*_].*?)\1/g, contentClass: 'cm-md-bold' },
+    { regex: /(~~)(.+?)\1/g, contentClass: 'cm-md-strike' },
+    { regex: /(\+\+)(.+?)\1/g, contentClass: 'cm-md-underline' },
+    { regex: /(`)([^`]+?)\1/g, contentClass: 'cm-md-code' },
+    { regex: /(\[)([^\]]+)(\]\([^)]+\))/g, contentClass: 'cm-md-link', split: true }
+  ];
+
+  patterns.forEach((item) => {
+    let match;
+    item.regex.lastIndex = 0;
+    while ((match = item.regex.exec(lineText)) !== null) {
+      if (item.split) {
+        const openStart = match.index;
+        const textStart = openStart + match[1].length;
+        const textEnd = textStart + match[2].length;
+        addMarkup(openStart, textStart);
+        add(textStart, textEnd, item.contentClass);
+        addMarkup(textEnd, match.index + match[0].length);
+      } else {
+        const openLength = match[1].length;
+        const openStart = match.index;
+        const contentStart = openStart + openLength;
+        const contentEnd = contentStart + match[2].length;
+        const closeEnd = contentEnd + openLength;
+        addMarkup(openStart, contentStart);
+        add(contentStart, contentEnd, item.contentClass);
+        addMarkup(contentEnd, closeEnd);
+      }
+    }
+  });
+
+  const italicRegex = /(^|[^\*])(\*|_)([^\s*_][^*_]*?)\2/g;
+  let italicMatch;
+  while ((italicMatch = italicRegex.exec(lineText)) !== null) {
+    const prefixLength = italicMatch[1].length;
+    const markerStart = italicMatch.index + prefixLength;
+    const contentStart = markerStart + italicMatch[2].length;
+    const contentEnd = contentStart + italicMatch[3].length;
+    addMarkup(markerStart, contentStart);
+    add(contentStart, contentEnd, 'cm-md-italic');
+    addMarkup(contentEnd, contentEnd + italicMatch[2].length);
+  }
+}
+
+function addLinePrefixDecoration(ranges, line, length, isSourceLine, widgetText, className, startOffset = 0, widgetOptions = {}) {
+  if (length <= 0) {
+    return;
+  }
+  const from = line.from + startOffset;
+  const to = from + length;
+  if (isSourceLine) {
+    ranges.push(Decoration.mark({ class: 'cm-md-markup' }).range(from, to));
+    return;
+  }
+  if (widgetText != null) {
+    ranges.push(Decoration.widget({
+      side: -1,
+      widget: new MarkdownMarkerWidget(
+        widgetText,
+        className,
+        widgetOptions.checkboxFrom ?? null,
+        widgetOptions.checked ?? false
+      )
+    }).range(from));
+  }
+  ranges.push(Decoration.mark({ class: 'cm-md-hidden-markup' }).range(from, to));
+}
+
+function buildMarkdownDecorations(view) {
+  const ranges = [];
+  let inCodeFence = false;
+
+  for (const { from, to } of view.visibleRanges) {
+    let pos = from;
+    while (pos <= to) {
+      const line = view.state.doc.lineAt(pos);
+      const trimmed = line.text.trim();
+      const lineClasses = [];
+      const isFence = /^```/.test(trimmed);
+      const isSourceLine = isLineInSelection(view, line);
+      let prefixDecoration = null;
+
+      if (inCodeFence || isFence) {
+        lineClasses.push('cm-md-code-line');
+      }
+      if (isFence) {
+        lineClasses.push('cm-md-code-fence');
+      } else if (/^#{1,6}\s/.test(trimmed)) {
+        lineClasses.push('cm-md-heading-line');
+        const headingMatch = line.text.match(/^(\s*#{1,6}\s+)/);
+        prefixDecoration = { length: headingMatch?.[1].length || 0, widgetText: null, className: '' };
+      } else if (/^>\s?/.test(trimmed)) {
+        lineClasses.push('cm-md-quote-line');
+        const quoteMatch = line.text.match(/^(\s*>\s?)/);
+        prefixDecoration = { length: quoteMatch?.[1].length || 0, widgetText: null, className: '' };
+      } else if (/^[-*+]\s+\[[ xX]\]\s/.test(trimmed)) {
+        lineClasses.push('cm-md-check-line');
+        const checkMatch = line.text.match(/^(\s*[-*+]\s+\[([ xX])\]\s+)/);
+        const checkPrefix = checkMatch?.[1] || '';
+        const checkBoxIndex = checkPrefix.search(/\[[ xX]\]/);
+        const checked = Boolean(checkMatch && /x/i.test(checkMatch[2]));
+        prefixDecoration = {
+          startOffset: checkMatch ? checkPrefix.length - checkPrefix.trimStart().length : 0,
+          length: checkMatch ? checkPrefix.trimStart().length : 0,
+          widgetText: 'checkbox',
+          className: 'cm-md-check-widget',
+          widgetOptions: {
+            checkboxFrom: checkBoxIndex >= 0 ? line.from + checkBoxIndex + 1 : null,
+            checked
+          }
+        };
+      } else if (/^([-*+]|\d+\.)\s/.test(trimmed)) {
+        lineClasses.push('cm-md-list-line');
+        const listMatch = line.text.match(/^(\s*)([-*+]|\d+\.)\s+/);
+        const listPrefixLength = listMatch ? listMatch[0].length - listMatch[1].length : 0;
+        const listWidget = listMatch && /\d+\./.test(listMatch[2]) ? `${listMatch[2]} ` : '• ';
+        prefixDecoration = {
+          startOffset: listMatch ? listMatch[1].length : 0,
+          length: listPrefixLength,
+          widgetText: listWidget,
+          className: 'cm-md-list-widget'
+        };
+      } else if (/^(\|?.+\|.+)$/.test(trimmed)) {
+        lineClasses.push('cm-md-table-line');
+      } else if (/^(---|\*\*\*|___)$/.test(trimmed)) {
+        lineClasses.push('cm-md-hr-line');
+      }
+
+      if (lineClasses.length > 0) {
+        ranges.push(Decoration.line({ class: lineClasses.join(' ') }).range(line.from));
+      }
+      if (prefixDecoration) {
+        addLinePrefixDecoration(
+          ranges,
+          line,
+          prefixDecoration.length,
+          isSourceLine,
+          prefixDecoration.widgetText,
+          prefixDecoration.className,
+          prefixDecoration.startOffset || 0,
+          prefixDecoration.widgetOptions || {}
+        );
+      }
+      if (!inCodeFence) {
+        addInlineMarkdownDecorations(ranges, line, isSourceLine);
+      }
+      if (isFence) {
+        inCodeFence = !inCodeFence;
+      }
+
+      if (line.to >= to) {
+        break;
+      }
+      pos = line.to + 1;
+    }
+  }
+
+  return Decoration.set(ranges, true);
+}
+
+const taskkanriMarkdownDecorations = ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.decorations = buildMarkdownDecorations(view);
+  }
+
+  update(update) {
+    if (update.docChanged || update.viewportChanged || update.selectionSet) {
+      this.decorations = buildMarkdownDecorations(update.view);
+    }
+  }
+}, {
+  decorations: (plugin) => plugin.decorations
 });
 
 function startOfDay(input) {
@@ -725,10 +946,6 @@ function normalizeStatus(rawStatus, progress = 0) {
   return 'todo';
 }
 
-function statusLabel(status) {
-  return STATUS_OPTIONS.find((item) => item.value === status)?.label || '未着手';
-}
-
 function statusProgressValue(status, fallbackProgress = 0) {
   if (status === 'todo') {
     return 0;
@@ -1121,267 +1338,85 @@ function selectMarkdownFileFromBrowser() {
   });
 }
 
-function renderInlineMarkdown(text, keyPrefix = 'inline') {
-  const source = String(text || '');
-  const tokens = [];
-  let index = 0;
-
-  const pushText = (value) => {
-    if (value) {
-      tokens.push(value);
-    }
-  };
-
-  while (index < source.length) {
-    const rest = source.slice(index);
-
-    const linkMatch = rest.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
-    if (linkMatch) {
-      tokens.push(
-        <a key={`${keyPrefix}-link-${index}`} href={linkMatch[2]} target="_blank" rel="noreferrer">
-          {renderInlineMarkdown(linkMatch[1], `${keyPrefix}-linktext-${index}`)}
-        </a>
-      );
-      index += linkMatch[0].length;
-      continue;
-    }
-
-    const boldMatch = rest.match(/^\*\*([^*]+)\*\*/);
-    if (boldMatch) {
-      tokens.push(
-        <strong key={`${keyPrefix}-bold-${index}`}>
-          {renderInlineMarkdown(boldMatch[1], `${keyPrefix}-boldtext-${index}`)}
-        </strong>
-      );
-      index += boldMatch[0].length;
-      continue;
-    }
-
-    const italicMatch = rest.match(/^\*([^*]+)\*/);
-    if (italicMatch) {
-      tokens.push(
-        <em key={`${keyPrefix}-italic-${index}`}>
-          {renderInlineMarkdown(italicMatch[1], `${keyPrefix}-italictext-${index}`)}
-        </em>
-      );
-      index += italicMatch[0].length;
-      continue;
-    }
-
-    const codeMatch = rest.match(/^`([^`]+)`/);
-    if (codeMatch) {
-      tokens.push(<code key={`${keyPrefix}-code-${index}`}>{codeMatch[1]}</code>);
-      index += codeMatch[0].length;
-      continue;
-    }
-
-    const strikeMatch = rest.match(/^~~([^~]+)~~/);
-    if (strikeMatch) {
-      tokens.push(<del key={`${keyPrefix}-del-${index}`}>{renderInlineMarkdown(strikeMatch[1], `${keyPrefix}-deltext-${index}`)}</del>);
-      index += strikeMatch[0].length;
-      continue;
-    }
-
-    pushText(source[index]);
-    index += 1;
-  }
-
-  return tokens;
-}
-
-function renderParagraphLines(lines, keyPrefix = 'paragraph') {
-  return lines.flatMap((line, index) => {
-    const parts = [];
-    if (index > 0) {
-      parts.push(<br key={`${keyPrefix}-br-${index}`} />);
-    }
-    parts.push(
-      <Fragment key={`${keyPrefix}-line-${index}`}>
-        {renderInlineMarkdown(line, `${keyPrefix}-${index}`)}
-      </Fragment>
-    );
-    return parts;
-  });
-}
-
-function splitTableRow(line) {
-  return String(line || '')
-    .trim()
-    .replace(/^\||\|$/g, '')
-    .split('|')
-    .map((cell) => cell.trim());
-}
-
-function isTableSeparator(line) {
-  const cells = splitTableRow(line);
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
-}
-
-function renderMarkdownBlocks(markdown) {
-  const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
-  const blocks = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index];
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      index += 1;
-      continue;
-    }
-
-    const fenceMatch = line.match(/^```(\w+)?\s*$/);
-    if (fenceMatch) {
-      const codeLines = [];
-      index += 1;
-      while (index < lines.length && !lines[index].match(/^```\s*$/)) {
-        codeLines.push(lines[index]);
-        index += 1;
-      }
-      index += 1;
-      blocks.push(
-        <pre key={`code-${blocks.length}`} className="md-preview-code">
-          <code>{codeLines.join('\n')}</code>
-        </pre>
-      );
-      continue;
-    }
-
-    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
-    if (headingMatch) {
-      const Tag = `h${headingMatch[1].length}`;
-      blocks.push(<Tag key={`heading-${blocks.length}`}>{renderInlineMarkdown(headingMatch[2], `h-${blocks.length}`)}</Tag>);
-      index += 1;
-      continue;
-    }
-
-    if (/^([-*_])(?:\s*\1){2,}\s*$/.test(trimmed)) {
-      blocks.push(<hr key={`hr-${blocks.length}`} />);
-      index += 1;
-      continue;
-    }
-
-    if (index + 1 < lines.length && line.includes('|') && isTableSeparator(lines[index + 1])) {
-      const header = splitTableRow(line);
-      const bodyRows = [];
-      index += 2;
-      while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
-        bodyRows.push(splitTableRow(lines[index]));
-        index += 1;
-      }
-      blocks.push(
-        <table key={`table-${blocks.length}`} className="md-preview-table">
-          <thead>
-            <tr>
-              {header.map((cell, cellIndex) => <th key={`th-${cellIndex}`}>{renderInlineMarkdown(cell, `th-${cellIndex}`)}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {bodyRows.map((row, rowIndex) => (
-              <tr key={`tr-${rowIndex}`}>
-                {row.map((cell, cellIndex) => <td key={`td-${rowIndex}-${cellIndex}`}>{renderInlineMarkdown(cell, `td-${rowIndex}-${cellIndex}`)}</td>)}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      );
-      continue;
-    }
-
-    const listMatch = line.match(/^(\s*)([-+*]|\d+\.)\s+(.*)$/);
-    if (listMatch) {
-      const items = [];
-      const ordered = /\d+\./.test(listMatch[2]);
-      while (index < lines.length) {
-        const currentMatch = lines[index].match(/^(\s*)([-+*]|\d+\.)\s+(.*)$/);
-        if (!currentMatch) {
-          break;
-        }
-        const content = currentMatch[3];
-        const checkboxMatch = content.match(/^\[( |x|X)\]\s+(.*)$/);
-        items.push({
-          checked: Boolean(checkboxMatch && /x/i.test(checkboxMatch[1])),
-          isCheckbox: Boolean(checkboxMatch),
-          content: checkboxMatch ? checkboxMatch[2] : content
-        });
-        index += 1;
-      }
-      const ListTag = ordered ? 'ol' : 'ul';
-      blocks.push(
-        <ListTag key={`list-${blocks.length}`} className={items.some((item) => item.isCheckbox) ? 'md-preview-checklist' : ''}>
-          {items.map((item, itemIndex) => (
-            <li key={`li-${itemIndex}`} className={item.isCheckbox ? 'is-checkbox' : ''}>
-              {item.isCheckbox && <input type="checkbox" checked={item.checked} readOnly />}
-              <span>{renderInlineMarkdown(item.content, `li-${itemIndex}`)}</span>
-            </li>
-          ))}
-        </ListTag>
-      );
-      continue;
-    }
-
-    if (line.startsWith('>')) {
-      const quoteLines = [];
-      while (index < lines.length && lines[index].startsWith('>')) {
-        quoteLines.push(lines[index].replace(/^>\s?/, ''));
-        index += 1;
-      }
-      blocks.push(
-        <blockquote key={`quote-${blocks.length}`}>
-          {quoteLines.map((quoteLine, quoteIndex) => (
-            <p key={`quote-p-${quoteIndex}`}>{renderInlineMarkdown(quoteLine, `quote-${quoteIndex}`)}</p>
-          ))}
-        </blockquote>
-      );
-      continue;
-    }
-
-    const paragraphLines = [];
-    while (index < lines.length && lines[index].trim()) {
-      if (
-        lines[index].match(/^(\s*)([-+*]|\d+\.)\s+/)
-        || lines[index].match(/^(#{1,6})\s+/)
-        || lines[index].match(/^```/)
-        || lines[index].startsWith('>')
-        || /^([-*_])(?:\s*\1){2,}\s*$/.test(lines[index].trim())
-        || (index + 1 < lines.length && lines[index].includes('|') && isTableSeparator(lines[index + 1]))
-      ) {
-        break;
-      }
-      paragraphLines.push(lines[index]);
-      index += 1;
-    }
-    blocks.push(<p key={`p-${blocks.length}`}>{renderParagraphLines(paragraphLines, `p-${blocks.length}`)}</p>);
-  }
-
-  return blocks;
-}
-
 const LiveMarkdownEditor = forwardRef(function LiveMarkdownEditor({ markdown, onChange, placeholder, editorKey }, ref) {
-  const editorRef = useRef(null);
-  const latestMarkdownRef = useRef(markdown);
-  const plugins = useMemo(() => [
-    headingsPlugin({ allowedHeadingLevels: [1, 2, 3, 4] }),
-    listsPlugin(),
-    quotePlugin(),
-    thematicBreakPlugin(),
-    linkPlugin(),
-    linkDialogPlugin(),
-    tablePlugin(),
-    codeBlockPlugin({ defaultCodeBlockLanguage: 'text' }),
-    taskkanriMarkdownShortcutPlugin()
-  ], []);
+  const containerRef = useRef(null);
+  const viewRef = useRef(null);
+  const latestMarkdownRef = useRef(markdown || '');
+  const onChangeRef = useRef(onChange);
 
   useEffect(() => {
-    latestMarkdownRef.current = markdown;
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  const extensions = useMemo(() => [
+    lineNumbers(),
+    highlightActiveLine(),
+    history(),
+    codeMirrorMarkdown({ codeLanguages: taskkanriCodeLanguage }),
+    syntaxHighlighting(taskkanriMarkdownHighlight),
+    taskkanriMarkdownDecorations,
+    codeMirrorPlaceholder(placeholder),
+    EditorView.lineWrapping,
+    keymap.of([
+      indentWithTab,
+      ...defaultKeymap,
+      ...historyKeymap
+    ]),
+    EditorView.updateListener.of((update) => {
+      if (!update.docChanged) {
+        return;
+      }
+      const value = update.state.doc.toString();
+      latestMarkdownRef.current = value;
+      onChangeRef.current(value);
+    })
+  ], [placeholder]);
+
+  useEffect(() => {
+    if (!containerRef.current) {
+      return undefined;
+    }
+
+    const view = new EditorView({
+      parent: containerRef.current,
+      state: EditorState.create({
+        doc: markdown || '',
+        extensions
+      })
+    });
+    viewRef.current = view;
+    latestMarkdownRef.current = markdown || '';
+
+    return () => {
+      view.destroy();
+      if (viewRef.current === view) {
+        viewRef.current = null;
+      }
+    };
+  }, [editorKey, extensions]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    const nextMarkdown = markdown || '';
+    latestMarkdownRef.current = nextMarkdown;
+    if (!view || view.state.doc.toString() === nextMarkdown) {
+      return;
+    }
+
+    view.dispatch({
+      changes: {
+        from: 0,
+        to: view.state.doc.length,
+        insert: nextMarkdown
+      }
+    });
   }, [editorKey, markdown]);
 
   const flush = () => {
-    if (editorRef.current && typeof editorRef.current.getMarkdown === 'function') {
-      const currentMarkdown = editorRef.current.getMarkdown();
+    if (viewRef.current) {
+      const currentMarkdown = viewRef.current.state.doc.toString();
       latestMarkdownRef.current = currentMarkdown;
-      onChange(currentMarkdown);
+      onChangeRef.current(currentMarkdown);
     }
   };
 
@@ -1390,21 +1425,10 @@ const LiveMarkdownEditor = forwardRef(function LiveMarkdownEditor({ markdown, on
   }), []);
 
   return (
-    <MDXEditor
+    <div
       key={editorKey}
-      ref={editorRef}
-      className="live-md-editor live-md-native"
-      contentEditableClassName="mdx-notes-content"
-      markdown={markdown || ''}
-      plugins={plugins}
-      spellCheck={false}
-      placeholder={placeholder}
-      onChange={(value, initialMarkdownNormalize) => {
-        latestMarkdownRef.current = value;
-        if (!initialMarkdownNormalize) {
-          onChange(value);
-        }
-      }}
+      className="live-md-editor live-md-codemirror"
+      ref={containerRef}
     />
   );
 });
@@ -1419,6 +1443,7 @@ function App() {
   const [isVaultBusy, setIsVaultBusy] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showLightning, setShowLightning] = useState(true);
+  const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light');
   const [tagColors, setTagColors] = useState(() => loadInitialTagColors());
   const [collapsedTags, setCollapsedTags] = useState({});
   const [filters, setFilters] = useState({
@@ -1468,6 +1493,11 @@ function App() {
   useEffect(() => {
     localStorage.setItem(TAG_COLORS_KEY, JSON.stringify(tagColors));
   }, [tagColors]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
 
   useEffect(() => () => {
     if (statusTimerRef.current) {
@@ -1734,6 +1764,54 @@ function App() {
       };
     }, { todo: 0, doing: 0, done: 0 });
 
+    const collectTasksForPath = (path) => {
+      const node = nodeMap.get(path);
+      if (!node) {
+        return [];
+      }
+
+      return [
+        ...node.tasks,
+        ...[...node.children].flatMap((childPath) => collectTasksForPath(childPath))
+      ];
+    };
+
+    const aggregateTasksForPath = (path) => {
+      const tasksForPath = collectTasksForPath(path);
+      if (tasksForPath.length === 0) {
+        return null;
+      }
+
+      const start = tasksForPath.reduce((min, task) => (
+        parseDateKey(task.start) < parseDateKey(min) ? task.start : min
+      ), tasksForPath[0].start);
+      const end = tasksForPath.reduce((max, task) => (
+        parseDateKey(task.end) > parseDateKey(max) ? task.end : max
+      ), tasksForPath[0].end);
+      const weighted = tasksForPath.reduce((total, task) => {
+        const duration = Math.max(1, daysBetween(task.start, task.end) + 1);
+        return {
+          progress: total.progress + (task.progress * duration),
+          duration: total.duration + duration
+        };
+      }, { progress: 0, duration: 0 });
+      const progress = weighted.duration > 0
+        ? Math.round(weighted.progress / weighted.duration)
+        : 0;
+      const statuses = tasksForPath.map((task) => normalizeStatus(task.status, task.progress));
+      const status = statuses.every((item) => item === 'done')
+        ? 'done'
+        : (statuses.some((item) => item === 'doing') || progress > 0 ? 'doing' : 'todo');
+
+      return {
+        start,
+        end,
+        progress,
+        status,
+        count: tasksForPath.length
+      };
+    };
+
     const rows = [];
 
     const walk = (path) => {
@@ -1751,6 +1829,7 @@ function App() {
         level: tagDepth(path),
         palette,
         statusCounts: statusCountsFor(node.tasks),
+        aggregate: collapsed ? aggregateTasksForPath(path) : null,
         collapsed
       });
 
@@ -1815,26 +1894,47 @@ function App() {
 
   const geometry = useMemo(() => {
     const positions = new Map();
-    visibleTasks.forEach((task) => {
-      const metric = rowMetrics.taskMetricById.get(task.id);
+    const positionFor = (metric, start, end, barHeight = BAR_HEIGHT) => {
       if (!metric) {
-        return;
+        return null;
       }
-      const startOffset = daysBetween(timeline.start, task.start);
-      const duration = Math.max(1, daysBetween(task.start, task.end) + 1);
+      const startOffset = daysBetween(timeline.start, start);
+      const duration = Math.max(1, daysBetween(start, end) + 1);
       const startX = startOffset * COL_WIDTH + 3;
       const width = Math.max(12, duration * COL_WIDTH - 6);
       const endX = startX + width;
-      positions.set(task.id, {
+      return {
         startX,
         endX,
         centerY: metric.centerY,
         width,
-        top: metric.top + ((metric.height - BAR_HEIGHT) / 2)
-      });
+        top: metric.top + ((metric.height - barHeight) / 2)
+      };
+    };
+
+    visibleTasks.forEach((task) => {
+      const position = positionFor(rowMetrics.taskMetricById.get(task.id), task.start, task.end);
+      if (position) {
+        positions.set(task.id, position);
+      }
+    });
+
+    visibleRows.forEach((row) => {
+      if (row.type !== 'group' || !row.aggregate) {
+        return;
+      }
+      const position = positionFor(
+        rowMetrics.groupMetricByPath.get(row.group),
+        row.aggregate.start,
+        row.aggregate.end,
+        AGGREGATE_BAR_HEIGHT
+      );
+      if (position) {
+        positions.set(`group:${row.group}`, position);
+      }
     });
     return positions;
-  }, [rowMetrics, timeline.start, visibleTasks]);
+  }, [rowMetrics, timeline.start, visibleRows, visibleTasks]);
 
   useEffect(() => {
     const chartNode = chartScrollRef.current;
@@ -2623,6 +2723,15 @@ function App() {
                 />
                 <span>⚡</span>
               </label>
+              <button
+                type="button"
+                className="theme-toggle"
+                onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              >
+                {theme === 'dark' ? '☀' : '☾'}
+              </button>
               {vaultStatus && <span className="vault-status inline-status">{vaultStatus}</span>}
               <div className="menu-anchor" ref={menuRef}>
                 <button
@@ -2881,6 +2990,40 @@ function App() {
                 );
               })}
 
+              {visibleRows.map((row) => {
+                if (row.type !== 'group' || !row.aggregate) {
+                  return null;
+                }
+                const position = geometry.get(`group:${row.group}`);
+                if (!position) {
+                  return null;
+                }
+                const lagging = parseDateKey(row.aggregate.end) < parseDateKey(today) && row.aggregate.progress < 100;
+
+                return (
+                  <div
+                    className={`task-bar aggregate-bar status-${row.aggregate.status} ${lagging ? 'lagging' : ''}`}
+                    key={`aggregate-${row.group}`}
+                    style={{
+                      left: `${position.startX}px`,
+                      top: `${position.top}px`,
+                      width: `${position.width}px`,
+                      height: `${AGGREGATE_BAR_HEIGHT}px`,
+                      '--group-soft': row.palette.soft,
+                      '--group-base': row.palette.base,
+                      '--group-strong': row.palette.strong,
+                      '--group-fill': row.palette.fill
+                    }}
+                    title={`${row.label}: ${row.aggregate.start} - ${row.aggregate.end}`}
+                  >
+                    <div className="task-fill" style={{ width: `${row.aggregate.progress}%` }} />
+                    <span className="task-name aggregate-name">
+                      {row.label} ({row.aggregate.count})
+                    </span>
+                  </div>
+                );
+              })}
+
               {visibleRows.map((row, index) => {
                 const metric = rowMetrics.metrics[index];
                 if (row.type !== 'task') {
@@ -2902,6 +3045,7 @@ function App() {
                         left: `${position.startX}px`,
                         top: `${position.top}px`,
                         width: `${position.width}px`,
+                        '--chart-status-color': STATUS_COLOR_MAP[taskStatus].color,
                         '--group-soft': row.palette.soft,
                         '--group-base': row.palette.base,
                         '--group-strong': row.palette.strong,
@@ -2921,7 +3065,9 @@ function App() {
                           setModalTaskId(task.id);
                         }}
                       >
-                        #{task.id} {task.name}
+                        <span className="chart-status-dot" aria-hidden="true" />
+                        <span className="chart-task-no">#{task.id}</span>
+                        <span className="chart-task-title">{task.name}</span>
                       </button>
                       <div
                         className="handle left"
@@ -2937,14 +3083,6 @@ function App() {
                           startDrag(event, task.id, 'resize-end');
                         }}
                       />
-                    </div>
-                    <div
-                      className="row-label"
-                      style={{
-                        top: `${(metric?.top || 0) + 4}px`
-                      }}
-                    >
-                      {statusLabel(taskStatus)}
                     </div>
                   </div>
                 );

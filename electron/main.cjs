@@ -1,4 +1,5 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
+const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
 
@@ -51,6 +52,12 @@ function getRendererEntry() {
     type: 'file',
     value: path.join(__dirname, '..', 'dist', 'index.html')
   };
+}
+
+function getAppIconPath() {
+  const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+  const iconPath = path.join(__dirname, '..', 'build', iconName);
+  return fsSync.existsSync(iconPath) ? iconPath : undefined;
 }
 
 function getWindowForDialog() {
@@ -352,6 +359,8 @@ function createWindow() {
     height: 920,
     minWidth: 1100,
     minHeight: 700,
+    icon: getAppIconPath(),
+    autoHideMenuBar: true,
     backgroundColor: '#f5f7ef',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -360,6 +369,8 @@ function createWindow() {
       sandbox: false
     }
   });
+  mainWindow.setMenu(null);
+  mainWindow.setMenuBarVisibility(false);
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     writeMainLog(`did-fail-load code=${errorCode} url=${validatedURL} desc=${errorDescription}`);
@@ -393,6 +404,7 @@ function createWindow() {
 app.whenReady().then(() => {
   mainLogPath = path.join(app.getPath('userData'), 'taskkanri-main.log');
   writeMainLog('app-ready');
+  Menu.setApplicationMenu(null);
   createWindow();
 
   app.on('activate', () => {

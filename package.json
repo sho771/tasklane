@@ -1,6 +1,6 @@
 {
   "name": "taskkanri-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Desktop task manager with Gantt chart built with Electron + React",
   "main": "electron/main.cjs",
   "author": "",
@@ -8,13 +8,27 @@
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron . --dev-url=http://127.0.0.1:5173\"",
     "build": "vite build",
-    "build:desktop": "npm run build && electron-builder",
-    "build:win": "npm run build && electron-builder --win portable --x64",
+    "generate:icon": "node scripts/generate-icon.cjs",
+    "build:desktop": "npm run build && npm run generate:icon && electron-builder",
+    "build:win": "npm run build && npm run generate:icon && electron-builder --win portable --x64",
     "preview": "vite preview",
     "start": "electron ."
   },
   "devDependencies": {
-    "@mdxeditor/editor": "^3.20.0",
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-html": "^6.4.11",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/lang-php": "^6.0.2",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/legacy-modes": "^6.5.2",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.1",
+    "@lezer/highlight": "^1.2.3",
     "@vitejs/plugin-react": "^5.2.0",
     "concurrently": "^9.2.1",
     "electron": "^41.2.2",
@@ -33,12 +47,15 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build/icon.ico",
+      "build/icon.png",
       "package.json"
     ],
     "extraMetadata": {
       "main": "electron/main.cjs"
     },
     "win": {
+      "icon": "build/icon.ico",
       "compression": "maximum",
       "electronLanguages": [
         "ja",
