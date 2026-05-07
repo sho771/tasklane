@@ -3190,12 +3190,28 @@ function App() {
                 />
               </label>
 
+              <label className="modal-field-tags">
+                <span>Tags</span>
+                <input
+                  type="text"
+                  placeholder="#task/hoge #work"
+                  value={modalTagsInput}
+                  onChange={(event) => {
+                    setModalTagsInput(event.target.value);
+                  }}
+                  onBlur={() => {
+                    commitModalDrafts();
+                  }}
+                />
+              </label>
+
               <label className="modal-field-uid">
                 <span>UID</span>
                 <input
                   type="text"
                   value={modalTask.uid || ''}
                   readOnly
+                  tabIndex={-1}
                 />
               </label>
 
@@ -3234,21 +3250,6 @@ function App() {
                   max="100"
                   value={modalTask.progress}
                   onChange={(event) => updateTask(modalTask.id, { progress: Number(event.target.value) })}
-                />
-              </label>
-
-              <label className="modal-field-tags">
-                <span>Tags</span>
-                <input
-                  type="text"
-                  placeholder="#task/hoge #work"
-                  value={modalTagsInput}
-                  onChange={(event) => {
-                    setModalTagsInput(event.target.value);
-                  }}
-                  onBlur={() => {
-                    commitModalDrafts();
-                  }}
                 />
               </label>
 
