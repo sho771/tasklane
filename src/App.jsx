@@ -9,7 +9,7 @@ import { php } from '@codemirror/lang-php';
 import { python } from '@codemirror/lang-python';
 import { sql } from '@codemirror/lang-sql';
 import { HighlightStyle, LanguageDescription, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
-import { EditorState } from '@codemirror/state';
+import { EditorSelection, EditorState } from '@codemirror/state';
 import {
   Decoration,
   EditorView,
@@ -37,6 +37,7 @@ const VAULT_PATH_KEY = 'taskkanri.desktop.vaultPath.v1';
 const TAG_COLORS_KEY = 'taskkanri.desktop.tagColors.v1';
 const LEGACY_GROUP_COLORS_KEY = 'taskkanri.desktop.groupColors.v1';
 const THEME_KEY = 'taskkanri.desktop.theme.v1';
+const SETTINGS_KEY = 'taskkanri.desktop.settings.v1';
 const IMPORT_TAG = '#task';
 const UNTAGGED_KEY = '__untagged__';
 const STATUS_OPTIONS = [
@@ -66,6 +67,33 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'open', label: '完了以外' },
   ...STATUS_OPTIONS
 ];
+const QUICK_FILTER_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'This Week' }
+];
+const MARKDOWN_SHORTCUT_ACTIONS = {
+  bold: { label: 'Bold', defaultKey: 'Mod-b', type: 'wrap', before: '**', after: '**' },
+  italic: { label: 'Italic', defaultKey: 'Mod-i', type: 'wrap', before: '*', after: '*' },
+  strike: { label: 'Strikethrough', defaultKey: 'Mod-Shift-x', type: 'wrap', before: '~~', after: '~~' },
+  inlineCode: { label: 'Inline code', defaultKey: 'Mod-e', type: 'wrap', before: '`', after: '`' },
+  heading1: { label: 'Heading 1', defaultKey: 'Mod-Alt-1', type: 'linePrefix', prefix: '# ' },
+  heading2: { label: 'Heading 2', defaultKey: 'Mod-Alt-2', type: 'linePrefix', prefix: '## ' },
+  heading3: { label: 'Heading 3', defaultKey: 'Mod-Alt-3', type: 'linePrefix', prefix: '### ' },
+  unorderedList: { label: 'Bullet list', defaultKey: 'Mod-Shift-8', type: 'linePrefix', prefix: '- ' },
+  checklist: { label: 'Checklist', defaultKey: 'Mod-Shift-9', type: 'linePrefix', prefix: '- [ ] ' },
+  quote: { label: 'Quote', defaultKey: 'Mod-Shift-.', type: 'linePrefix', prefix: '> ' }
+};
+const DEFAULT_MARKDOWN_SHORTCUTS = Object.fromEntries(
+  Object.entries(MARKDOWN_SHORTCUT_ACTIONS).map(([action, config]) => [action, config.defaultKey])
+);
+const DEFAULT_SETTINGS = {
+  indexDigits: 4,
+  nextTaskIndex: 1,
+  fileNamePattern: '{index}_{name}',
+  markdownShortcuts: DEFAULT_MARKDOWN_SHORTCUTS
+};
 
 const taskkanriCodeLanguages = [
   LanguageDescription.of({
@@ -473,50 +501,78 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
-function sampleTasks() {
-  const today = startOfDay(new Date());
-  return [
-    {
-      id: 1,
-      name: 'Planning',
-      status: 'doing',
-      start: toDateKey(addDays(today, -3)),
-      end: toDateKey(addDays(today, 1)),
-      progress: 85,
-      parentId: null,
-      dependsOn: [],
-      tags: ['task/core'],
-      markdown: '## Goal\nPlan the milestone and execution order.\n\n- Confirm scope\n- Confirm owner'
-    },
-    {
-      id: 2,
-      name: 'UI Draft',
-      status: 'doing',
-      start: toDateKey(addDays(today, 0)),
-      end: toDateKey(addDays(today, 5)),
-      progress: 50,
-      parentId: 1,
-      dependsOn: [1],
-      tags: ['task/core/ui'],
-      markdown: 'Create first interactive mockups.\n\nReview with the team on Friday.'
-    },
-    {
-      id: 3,
-      name: 'Integration',
-      status: 'todo',
-      start: toDateKey(addDays(today, 6)),
-      end: toDateKey(addDays(today, 11)),
-      progress: 15,
-      parentId: 1,
-      dependsOn: [2],
-      tags: ['task/release'],
-      markdown: 'Wire API and desktop packaging.'
-    }
-  ];
+function normalizeTaskIndex(rawIndex, fallbackIndex = 1) {
+  const parsed = Number(rawIndex);
+  if (Number.isInteger(parsed) && parsed > 0) {
+    return parsed;
+  }
+  const fallback = Number(fallbackIndex);
+  return Number.isInteger(fallback) && fallback > 0 ? fallback : 1;
+}
+
+function getTaskIndex(task) {
+  return normalizeTaskIndex(task?.index, task?.id);
+}
+
+function formatTaskIndex(task) {
+  return String(getTaskIndex(task)).padStart(4, '0');
+}
+
+function formatTaskIndexForFile(task, indexDigits = DEFAULT_SETTINGS.indexDigits) {
+  const digits = clamp(Math.round(Number(indexDigits) || DEFAULT_SETTINGS.indexDigits), 1, 8);
+  return String(getTaskIndex(task)).padStart(digits, '0');
+}
+
+function getNextTaskIndex(tasks) {
+  return tasks.reduce((max, task) => Math.max(max, getTaskIndex(task)), 0) + 1;
+}
+
+function normalizeMarkdownShortcuts(rawShortcuts = {}) {
+  return Object.fromEntries(Object.entries(MARKDOWN_SHORTCUT_ACTIONS).map(([action, config]) => {
+    const rawKey = rawShortcuts && typeof rawShortcuts[action] === 'string'
+      ? rawShortcuts[action].trim()
+      : '';
+    return [action, rawKey || config.defaultKey];
+  }));
+}
+
+function normalizeFileNamePattern(rawPattern) {
+  const pattern = String(rawPattern || '').trim();
+  return pattern || DEFAULT_SETTINGS.fileNamePattern;
+}
+
+function normalizeSettings(rawSettings = {}) {
+  return {
+    indexDigits: clamp(Math.round(Number(rawSettings.indexDigits) || DEFAULT_SETTINGS.indexDigits), 1, 8),
+    nextTaskIndex: normalizeTaskIndex(rawSettings.nextTaskIndex, DEFAULT_SETTINGS.nextTaskIndex),
+    fileNamePattern: normalizeFileNamePattern(rawSettings.fileNamePattern),
+    markdownShortcuts: normalizeMarkdownShortcuts(rawSettings.markdownShortcuts)
+  };
+}
+
+function loadInitialSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+    return normalizeSettings(parsed || DEFAULT_SETTINGS);
+  } catch {
+    return normalizeSettings(DEFAULT_SETTINGS);
+  }
+}
+
+function isLegacySampleTask(rawTask) {
+  const id = Number(rawTask?.id);
+  const name = typeof rawTask?.name === 'string' ? rawTask.name : '';
+  const tags = normalizeTags(rawTask?.tags).join(',');
+  return (
+    (id === 1 && name === 'Planning' && tags === 'task/core')
+    || (id === 2 && name === 'UI Draft' && tags === 'task/core/ui')
+    || (id === 3 && name === 'Integration' && tags === 'task/release')
+  );
 }
 
 function normalizeTask(rawTask, fallbackId) {
   const id = Number(rawTask.id) || fallbackId;
+  const index = normalizeTaskIndex(rawTask.index ?? rawTask.taskIndex ?? rawTask.no, id);
   const start = rawTask.start && /^\d{4}-\d{2}-\d{2}$/.test(rawTask.start) ? rawTask.start : toDateKey(new Date());
   const endCandidate = rawTask.end && /^\d{4}-\d{2}-\d{2}$/.test(rawTask.end) ? rawTask.end : start;
   const safeEnd = parseDateKey(endCandidate) < parseDateKey(start) ? start : endCandidate;
@@ -533,6 +589,7 @@ function normalizeTask(rawTask, fallbackId) {
 
   return {
     id,
+    index,
     name: typeof rawTask.name === 'string' && rawTask.name.trim() ? rawTask.name : `Task ${id}`,
     start,
     end: safeEnd,
@@ -553,17 +610,22 @@ function loadInitialTasks() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return sampleTasks();
+      return [];
     }
 
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      return sampleTasks();
+      return [];
     }
 
-    return parsed.map((task, index) => normalizeTask(task, index + 1));
+    return parsed
+      .filter((task) => !isLegacySampleTask(task))
+      .map((task, index) => normalizeTask({
+        ...task,
+        index: task.index ?? task.taskIndex ?? task.no ?? index + 1
+      }, index + 1));
   } catch {
-    return sampleTasks();
+    return [];
   }
 }
 
@@ -778,11 +840,22 @@ function getTaskFolderPath(task) {
     .join('/');
 }
 
-function getTaskMarkdownRelativePath(task) {
+function buildTaskFileBaseName(task, settings = DEFAULT_SETTINGS) {
+  const pattern = normalizeFileNamePattern(settings.fileNamePattern);
+  const paddedIndex = formatTaskIndexForFile(task, settings.indexDigits);
+  const rawBase = pattern
+    .replace(/\{index\}/g, paddedIndex)
+    .replace(/\{no\}/g, String(getTaskIndex(task)))
+    .replace(/\{id\}/g, String(task.id))
+    .replace(/\{name\}/g, String(task.name || `Task ${paddedIndex}`))
+    .replace(/\{uid\}/g, String(task.uid || ''))
+    .replace(/\{status\}/g, normalizeStatus(task.status, task.progress));
+  return sanitizePathSegment(rawBase, `${paddedIndex}_${task.name || `Task ${paddedIndex}`}`);
+}
+
+function getTaskMarkdownRelativePath(task, settings = DEFAULT_SETTINGS) {
   const folderPath = getTaskFolderPath(task);
-  const taskNo = Number.isInteger(Number(task.id)) && Number(task.id) > 0 ? Number(task.id) : 'task';
-  const taskName = sanitizePathSegment(task.name, `Task ${taskNo}`);
-  return `${folderPath}/${taskNo}_${taskName}.md`;
+  return `${folderPath}/${buildTaskFileBaseName(task, settings)}.md`;
 }
 
 function quoteMetaValue(value) {
@@ -800,6 +873,7 @@ function buildTaskMarkdown(task) {
     '---',
     'taskkanri: true',
     `id: ${task.id}`,
+    `index: ${getTaskIndex(task)}`,
     `uid: ${quoteMetaValue(task.uid || '')}`,
     `name: ${quoteMetaValue(task.name)}`,
     `status: ${quoteMetaValue(normalizeStatus(task.status, task.progress))}`,
@@ -817,10 +891,10 @@ function buildTaskMarkdown(task) {
   ].join('\n');
 }
 
-function buildTaskMarkdownFiles(tasks) {
+function buildTaskMarkdownFiles(tasks, settings = DEFAULT_SETTINGS) {
   const usedNames = new Set();
   return tasks.map((task) => {
-    const safePath = getTaskMarkdownRelativePath(task);
+    const safePath = getTaskMarkdownRelativePath(task, settings);
     const dotIndex = safePath.toLowerCase().lastIndexOf('.md');
     const safeBase = dotIndex >= 0 ? safePath.slice(0, dotIndex) : safePath;
     let fileName = `${safeBase}.md`;
@@ -1164,6 +1238,45 @@ function isTagPathMatch(targetPath, filterPath) {
   return targetPath === filterPath || targetPath.startsWith(`${filterPath}/`);
 }
 
+function isTaskInQuickFilter(task, quickFilter, todayKey) {
+  if (!quickFilter || quickFilter === 'all') {
+    return true;
+  }
+  const status = normalizeStatus(task.status, task.progress);
+  const taskStart = parseDateKey(task.start).getTime();
+  const taskEnd = parseDateKey(task.end).getTime();
+  const todayStart = parseDateKey(todayKey).getTime();
+
+  if (quickFilter === 'overdue') {
+    return taskEnd < todayStart && status !== 'done';
+  }
+  if (quickFilter === 'today') {
+    return taskStart <= todayStart && taskEnd >= todayStart;
+  }
+  if (quickFilter === 'week') {
+    const weekEnd = addDays(todayKey, 6).getTime();
+    return taskStart <= weekEnd && taskEnd >= todayStart;
+  }
+  return true;
+}
+
+function taskMatchesSearch(task, query) {
+  const trimmed = String(query || '').trim().toLowerCase();
+  if (!trimmed) {
+    return true;
+  }
+  const haystack = [
+    task.name,
+    task.uid,
+    task.status,
+    String(task.id),
+    String(getTaskIndex(task)),
+    normalizeTags(task.tags).join(' '),
+    task.markdown
+  ].join(' ').toLowerCase();
+  return haystack.includes(trimmed);
+}
+
 function parseDateFromLooseText(text) {
   const raw = String(text || '');
   const match = raw.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
@@ -1251,6 +1364,8 @@ function parseTaskFromMarkdownNote(content, relativePath) {
 
   const parsedId = Number(meta.id);
   const id = Number.isInteger(parsedId) && parsedId > 0 ? parsedId : null;
+  const rawIndex = meta.index ?? meta.taskIndex ?? meta.no;
+  const index = rawIndex == null ? id : normalizeTaskIndex(rawIndex, id);
   const start = typeof meta.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.start) ? meta.start : toDateKey(new Date());
   const end = typeof meta.end === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.end) ? meta.end : toDateKey(addDays(start, 2));
   const progress = clamp(Number(meta.progress) || 0, 0, 100);
@@ -1263,6 +1378,7 @@ function parseTaskFromMarkdownNote(content, relativePath) {
 
   return {
     id,
+    index,
     name,
     start,
     end,
@@ -1338,7 +1454,61 @@ function selectMarkdownFileFromBrowser() {
   });
 }
 
-const LiveMarkdownEditor = forwardRef(function LiveMarkdownEditor({ markdown, onChange, placeholder, editorKey }, ref) {
+function wrapMarkdownSelection(view, before, after) {
+  const ranges = [];
+  const changes = view.state.selection.ranges.map((range, index) => {
+    const selected = view.state.sliceDoc(range.from, range.to);
+    const insert = `${before}${selected}${after}`;
+    const anchor = range.from + before.length;
+    const head = anchor + selected.length;
+    ranges[index] = EditorSelection.range(anchor, head);
+    return { from: range.from, to: range.to, insert };
+  });
+
+  view.dispatch({
+    changes,
+    selection: EditorSelection.create(ranges, view.state.selection.mainIndex),
+    scrollIntoView: true
+  });
+  return true;
+}
+
+function insertMarkdownLinePrefix(view, prefix) {
+  const range = view.state.selection.main;
+  const line = view.state.doc.lineAt(range.from);
+  view.dispatch({
+    changes: { from: line.from, insert: prefix },
+    selection: { anchor: range.from + prefix.length, head: range.to + prefix.length },
+    scrollIntoView: true
+  });
+  return true;
+}
+
+function runMarkdownShortcut(view, action) {
+  const config = MARKDOWN_SHORTCUT_ACTIONS[action];
+  if (!config) {
+    return false;
+  }
+  if (config.type === 'wrap') {
+    return wrapMarkdownSelection(view, config.before, config.after);
+  }
+  if (config.type === 'linePrefix') {
+    return insertMarkdownLinePrefix(view, config.prefix);
+  }
+  return false;
+}
+
+function buildMarkdownShortcutKeymap(shortcuts) {
+  const normalized = normalizeMarkdownShortcuts(shortcuts);
+  return Object.entries(normalized)
+    .filter(([action, key]) => MARKDOWN_SHORTCUT_ACTIONS[action] && key)
+    .map(([action, key]) => ({
+      key,
+      run: (view) => runMarkdownShortcut(view, action)
+    }));
+}
+
+const LiveMarkdownEditor = forwardRef(function LiveMarkdownEditor({ markdown, onChange, placeholder, editorKey, markdownShortcuts }, ref) {
   const containerRef = useRef(null);
   const viewRef = useRef(null);
   const latestMarkdownRef = useRef(markdown || '');
@@ -1358,6 +1528,7 @@ const LiveMarkdownEditor = forwardRef(function LiveMarkdownEditor({ markdown, on
     codeMirrorPlaceholder(placeholder),
     EditorView.lineWrapping,
     keymap.of([
+      ...buildMarkdownShortcutKeymap(markdownShortcuts),
       indentWithTab,
       ...defaultKeymap,
       ...historyKeymap
@@ -1370,7 +1541,7 @@ const LiveMarkdownEditor = forwardRef(function LiveMarkdownEditor({ markdown, on
       latestMarkdownRef.current = value;
       onChangeRef.current(value);
     })
-  ], [placeholder]);
+  ], [markdownShortcuts, placeholder]);
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -1440,16 +1611,30 @@ function App() {
   const [modalTaskId, setModalTaskId] = useState(null);
   const [vaultPath, setVaultPath] = useState(() => localStorage.getItem(VAULT_PATH_KEY) || '');
   const [vaultStatus, setVaultStatus] = useState('');
+  const [vaultLog, setVaultLog] = useState([]);
   const [isVaultBusy, setIsVaultBusy] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState(() => loadInitialSettings());
+  const [settingsDraft, setSettingsDraft] = useState(() => {
+    const initial = loadInitialSettings();
+    return {
+      ...initial,
+      shortcutsJson: JSON.stringify(initial.markdownShortcuts, null, 2)
+    };
+  });
+  const [settingsError, setSettingsError] = useState('');
   const [showLightning, setShowLightning] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light');
   const [tagColors, setTagColors] = useState(() => loadInitialTagColors());
+  const [tagRenameDrafts, setTagRenameDrafts] = useState({});
   const [collapsedTags, setCollapsedTags] = useState({});
   const [filters, setFilters] = useState({
     status: 'all',
     dueBy: '',
-    tag: 'all'
+    tag: 'all',
+    quick: 'all',
+    query: ''
   });
 
   const idRef = useRef(tasks.reduce((max, task) => Math.max(max, task.id), 0) + 1);
@@ -1464,6 +1649,9 @@ function App() {
   const menuRef = useRef(null);
   const statusTimerRef = useRef(null);
   const autoSyncTimerRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const historyRef = useRef([]);
+  const redoRef = useRef([]);
 
   const getDesktopApi = () => {
     const api = window.desktopApi;
@@ -1476,6 +1664,46 @@ function App() {
       return api;
     }
     return null;
+  };
+
+  const setTasksWithHistory = (updater) => {
+    setTasks((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (next === prev) {
+        return prev;
+      }
+      historyRef.current = [...historyRef.current.slice(-49), prev];
+      redoRef.current = [];
+      return next;
+    });
+  };
+
+  const undoTasks = () => {
+    const previous = historyRef.current.pop();
+    if (!previous) {
+      showVaultStatus('Nothing to undo.');
+      return;
+    }
+    setTasks((current) => {
+      redoRef.current = [...redoRef.current.slice(-49), current];
+      return previous;
+    });
+    idRef.current = previous.reduce((max, task) => Math.max(max, task.id), 0) + 1;
+    showVaultStatus('Undo applied.');
+  };
+
+  const redoTasks = () => {
+    const next = redoRef.current.pop();
+    if (!next) {
+      showVaultStatus('Nothing to redo.');
+      return;
+    }
+    setTasks((current) => {
+      historyRef.current = [...historyRef.current.slice(-49), current];
+      return next;
+    });
+    idRef.current = next.reduce((max, task) => Math.max(max, task.id), 0) + 1;
+    showVaultStatus('Redo applied.');
   };
 
   useEffect(() => {
@@ -1498,6 +1726,17 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    const nextIndex = getNextTaskIndex(tasks);
+    if (settings.nextTaskIndex < nextIndex) {
+      setSettings((prev) => normalizeSettings({ ...prev, nextTaskIndex: nextIndex }));
+    }
+  }, [settings.nextTaskIndex, tasks]);
 
   useEffect(() => () => {
     if (statusTimerRef.current) {
@@ -1664,6 +1903,8 @@ function App() {
     tagPaths.filter((path) => path !== UNTAGGED_KEY && path.split('/').length === 1)
   ), [tagPaths]);
 
+  const today = toDateKey(new Date());
+
   useEffect(() => {
     setCollapsedTags((prev) => {
       const next = { ...prev };
@@ -1712,9 +1953,15 @@ function App() {
       if (filters.dueBy && task.end > filters.dueBy) {
         return false;
       }
+      if (!isTaskInQuickFilter(task, filters.quick, today)) {
+        return false;
+      }
+      if (!taskMatchesSearch(task, filters.query)) {
+        return false;
+      }
       return true;
     })
-  ), [filters, orderedTasks]);
+  ), [filters, orderedTasks, today]);
 
   const visibleRows = useMemo(() => {
     const nodeMap = new Map();
@@ -1978,7 +2225,7 @@ function App() {
   }, []);
 
   const updateTask = (taskId, updater) => {
-    setTasks((prev) => prev.map((task) => {
+    setTasksWithHistory((prev) => prev.map((task) => {
       if (task.id !== taskId) {
         return task;
       }
@@ -1987,6 +2234,7 @@ function App() {
       const next = { ...task, ...(patch || {}) };
       const safeStart = next.start;
       const safeEnd = parseDateKey(next.end) < parseDateKey(next.start) ? next.start : next.end;
+      const safeIndex = normalizeTaskIndex(next.index, task.index || task.id);
       const requestedStatus = normalizeStatus(next.status, next.progress);
       const statusChanged = Boolean(patch) && Object.prototype.hasOwnProperty.call(patch, 'status');
       const nextProgress = statusChanged
@@ -1996,6 +2244,7 @@ function App() {
       return {
         ...task,
         ...next,
+        index: safeIndex,
         start: safeStart,
         end: safeEnd,
         progress: progressWithStatus,
@@ -2004,8 +2253,20 @@ function App() {
     }));
   };
 
+  const getConfiguredNextTaskIndex = () => Math.max(
+    normalizeTaskIndex(settings.nextTaskIndex, getNextTaskIndex(tasks)),
+    getNextTaskIndex(tasks)
+  );
+
+  const advanceNextTaskIndex = (usedIndex) => {
+    setSettings((prev) => normalizeSettings({
+      ...prev,
+      nextTaskIndex: Math.max(normalizeTaskIndex(prev.nextTaskIndex, usedIndex + 1), usedIndex + 1)
+    }));
+  };
+
   const removeTask = (taskId) => {
-    setTasks((prev) => prev
+    setTasksWithHistory((prev) => prev
       .filter((task) => task.id !== taskId)
       .map((task) => ({
         ...task,
@@ -2021,10 +2282,11 @@ function App() {
 
     const normalized = normalizeTask({
       ...taskBase,
+      index: taskBase.index ?? getConfiguredNextTaskIndex(),
       id
     }, id);
 
-    setTasks((prev) => {
+    setTasksWithHistory((prev) => {
       const next = [...prev];
       const safeIndex = clamp(index, 0, next.length);
       next.splice(safeIndex, 0, normalized);
@@ -2034,6 +2296,7 @@ function App() {
 
   const handleTaskAddClick = () => {
     const id = idRef.current;
+    const nextIndex = getConfiguredNextTaskIndex();
     const uid = createUid();
     const start = toDateKey(new Date());
     const end = toDateKey(addDays(start, 2));
@@ -2045,7 +2308,8 @@ function App() {
       : (filters.tag === UNTAGGED_KEY ? [] : [filters.tag]);
 
     addTaskAt({
-      name: `Task ${id}`,
+      name: `Task ${nextIndex}`,
+      index: nextIndex,
       uid,
       status: initialStatus,
       start,
@@ -2058,6 +2322,7 @@ function App() {
     });
 
     setModalTaskId(id);
+    advanceNextTaskIndex(nextIndex);
   };
 
   const toggleGroupCollapsed = (group) => {
@@ -2065,6 +2330,110 @@ function App() {
       ...prev,
       [group]: !prev[group]
     }));
+  };
+
+  const renameTagPath = (oldPath, rawNewPath) => {
+    const normalizedOld = normalizeTagPath(oldPath);
+    const normalizedNew = normalizeTagPath(rawNewPath);
+    if (!normalizedOld || normalizedOld === UNTAGGED_KEY || normalizedNew === UNTAGGED_KEY || normalizedOld === normalizedNew) {
+      setTagRenameDrafts((prev) => ({ ...prev, [oldPath]: tagLabel(oldPath) }));
+      return;
+    }
+
+    const replaceTag = (tag) => {
+      const normalized = normalizeTagPath(tag);
+      if (normalized === normalizedOld) {
+        return normalizedNew;
+      }
+      if (normalized.startsWith(`${normalizedOld}/`)) {
+        return `${normalizedNew}${normalized.slice(normalizedOld.length)}`;
+      }
+      return normalized;
+    };
+
+    setTasksWithHistory((prev) => prev.map((task) => ({
+      ...task,
+      tags: [...new Set(normalizeTags(task.tags).map(replaceTag))]
+    })));
+    setTagColors((prev) => {
+      const next = { ...prev };
+      Object.entries(prev).forEach(([path, color]) => {
+        const normalizedPath = normalizeTagPath(path);
+        if (normalizedPath === normalizedOld || normalizedPath.startsWith(`${normalizedOld}/`)) {
+          const movedPath = normalizedPath === normalizedOld
+            ? normalizedNew
+            : `${normalizedNew}${normalizedPath.slice(normalizedOld.length)}`;
+          next[movedPath] = color;
+          delete next[path];
+        }
+      });
+      return next;
+    });
+    setCollapsedTags((prev) => {
+      const next = { ...prev };
+      Object.entries(prev).forEach(([path, collapsed]) => {
+        const normalizedPath = normalizeTagPath(path);
+        if (normalizedPath === normalizedOld || normalizedPath.startsWith(`${normalizedOld}/`)) {
+          const movedPath = normalizedPath === normalizedOld
+            ? normalizedNew
+            : `${normalizedNew}${normalizedPath.slice(normalizedOld.length)}`;
+          next[movedPath] = collapsed;
+          delete next[path];
+        }
+      });
+      return next;
+    });
+    setTagRenameDrafts((prev) => {
+      const next = { ...prev };
+      delete next[oldPath];
+      return next;
+    });
+    showVaultStatus(`Tag renamed: ${tagLabel(normalizedOld)} -> ${tagLabel(normalizedNew)}`);
+  };
+
+  const deleteTagPath = (tagPath) => {
+    const normalizedTarget = normalizeTagPath(tagPath);
+    if (normalizedTarget === UNTAGGED_KEY) {
+      return;
+    }
+    const ok = window.confirm(`Remove ${tagLabel(normalizedTarget)} from matching tasks?`);
+    if (!ok) {
+      return;
+    }
+    setTasksWithHistory((prev) => prev.map((task) => ({
+      ...task,
+      tags: normalizeTags(task.tags).filter((tag) => {
+        const normalized = normalizeTagPath(tag);
+        return normalized !== normalizedTarget && !normalized.startsWith(`${normalizedTarget}/`);
+      })
+    })));
+    setTagColors((prev) => Object.fromEntries(
+      Object.entries(prev).filter(([path]) => {
+        const normalized = normalizeTagPath(path);
+        return normalized !== normalizedTarget && !normalized.startsWith(`${normalizedTarget}/`);
+      })
+    ));
+    showVaultStatus(`Tag removed: ${tagLabel(normalizedTarget)}`);
+  };
+
+  const duplicateTask = (taskId) => {
+    const original = tasks.find((task) => task.id === taskId);
+    if (!original) {
+      return;
+    }
+    const nextIndex = getConfiguredNextTaskIndex();
+    const insertionIndex = tasks.findIndex((task) => task.id === taskId) + 1;
+    const id = idRef.current;
+    addTaskAt({
+      ...original,
+      name: `${original.name} Copy`,
+      index: nextIndex,
+      uid: createUid(),
+      sourcePath: ''
+    }, insertionIndex);
+    setModalTaskId(id);
+    advanceNextTaskIndex(nextIndex);
+    showVaultStatus(`Duplicated Task #${getTaskIndex(original)}.`);
   };
 
   const handleDisconnectVault = () => {
@@ -2078,14 +2447,15 @@ function App() {
       return;
     }
 
-    const ok = window.confirm('Delete all tasks? This action cannot be undone.');
+    const ok = window.confirm('Delete all tasks? You can restore them with Undo until the app is closed.');
     if (!ok) {
       return;
     }
 
-    setTasks([]);
+    setTasksWithHistory([]);
     setModalTaskId(null);
     idRef.current = 1;
+    setSettings((prev) => normalizeSettings({ ...prev, nextTaskIndex: 1 }));
     showVaultStatus('All tasks deleted.');
   };
 
@@ -2095,7 +2465,7 @@ function App() {
       return { writtenCount: 0, deletedCount: 0 };
     }
 
-    const files = buildTaskMarkdownFiles(targetTasks);
+    const files = buildTaskMarkdownFiles(targetTasks, settings);
     if (typeof api.syncMarkdownFiles === 'function') {
       return api.syncMarkdownFiles(targetVaultPath, files, {
         deleteStaleManaged: Boolean(options.deleteStaleManaged)
@@ -2142,7 +2512,7 @@ function App() {
     });
 
     idRef.current = Math.max(maxId + 1, 1);
-    setTasks(next);
+    setTasksWithHistory(next);
     return { importedCount };
   };
 
@@ -2169,8 +2539,20 @@ function App() {
     return replaceTasksWithImportedRecords(parsedRecords);
   };
 
+  const appendVaultLog = (message) => {
+    const timestamp = new Date().toLocaleString('ja-JP', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    setVaultLog((prev) => [{ timestamp, message }, ...prev].slice(0, 30));
+  };
+
   const showVaultStatus = (message) => {
     setVaultStatus(message);
+    appendVaultLog(message);
     if (statusTimerRef.current) {
       window.clearTimeout(statusTimerRef.current);
     }
@@ -2238,7 +2620,7 @@ function App() {
     let importedCount = 0;
     let updatedCount = 0;
 
-    setTasks((prev) => {
+    setTasksWithHistory((prev) => {
       const next = [...prev];
       const idToIndex = new Map(next.map((task, index) => [task.id, index]));
       const pathToIndex = new Map(
@@ -2391,7 +2773,9 @@ function App() {
 
     autoSyncTimerRef.current = window.setTimeout(async () => {
       try {
-        await syncTasksToVault(vaultPath, tasks, { deleteStaleManaged: true });
+        const result = await syncTasksToVault(vaultPath, tasks, { deleteStaleManaged: true });
+        const deletedText = result.deletedCount ? ` / Deleted ${result.deletedCount}` : '';
+        appendVaultLog(`Auto-saved ${result.writtenCount}${deletedText} tasks to ${getPathBaseName(vaultPath)}.`);
       } catch (error) {
         showVaultStatus(`Auto-save failed: ${error.message}`);
       } finally {
@@ -2405,7 +2789,7 @@ function App() {
         autoSyncTimerRef.current = null;
       }
     };
-  }, [tasks, vaultPath, isVaultBusy]);
+  }, [tasks, vaultPath, isVaultBusy, settings]);
 
   const stopDrag = () => {
     dragRef.current = null;
@@ -2548,9 +2932,11 @@ function App() {
       ? filters.tag
       : (targetRow?.group || tagOptions[0] || 'task');
     const fallbackTags = fallbackTag === UNTAGGED_KEY ? [] : [fallbackTag];
+    const nextIndex = getConfiguredNextTaskIndex();
 
     addTaskAt({
-      name: `Task ${idRef.current}`,
+      name: `Task ${nextIndex}`,
+      index: nextIndex,
       uid,
       status: 'todo',
       start,
@@ -2561,6 +2947,7 @@ function App() {
       tags: fallbackTags,
       markdown: ''
     });
+    advanceNextTaskIndex(nextIndex);
   };
 
   const relationPaths = useMemo(() => {
@@ -2668,9 +3055,8 @@ function App() {
     };
   }, [geometry, tagColors, visibleTasks]);
 
-  const today = toDateKey(new Date());
-
   const modalTask = tasks.find((task) => task.id === modalTaskId) || null;
+  const modalMarkdownPath = modalTask ? getTaskMarkdownRelativePath(modalTask, settings) : '';
   const [modalTagsInput, setModalTagsInput] = useState('');
   const noteEditorRef = useRef(null);
 
@@ -2698,6 +3084,139 @@ function App() {
     commitModalDrafts();
     setModalTaskId(null);
   };
+
+  const openSettings = () => {
+    setSettingsDraft({
+      indexDigits: settings.indexDigits,
+      nextTaskIndex: settings.nextTaskIndex,
+      fileNamePattern: settings.fileNamePattern,
+      shortcutsJson: JSON.stringify(settings.markdownShortcuts, null, 2)
+    });
+    setSettingsError('');
+    setIsSettingsOpen(true);
+  };
+
+  const closeSettings = () => {
+    setSettingsError('');
+    setIsSettingsOpen(false);
+  };
+
+  const saveSettings = () => {
+    try {
+      const markdownShortcuts = JSON.parse(settingsDraft.shortcutsJson || '{}');
+      setSettings(normalizeSettings({
+        indexDigits: settingsDraft.indexDigits,
+        nextTaskIndex: settingsDraft.nextTaskIndex,
+        fileNamePattern: settingsDraft.fileNamePattern,
+        markdownShortcuts
+      }));
+      closeSettings();
+    } catch {
+      setSettingsError('Markdown shortcuts JSON is invalid.');
+    }
+  };
+
+  const resetShortcutDraft = () => {
+    setSettingsDraft((prev) => ({
+      ...prev,
+      shortcutsJson: JSON.stringify(DEFAULT_MARKDOWN_SHORTCUTS, null, 2)
+    }));
+    setSettingsError('');
+  };
+
+  const shortcutDraftObject = useMemo(() => {
+    try {
+      return normalizeMarkdownShortcuts(JSON.parse(settingsDraft.shortcutsJson || '{}'));
+    } catch {
+      return normalizeMarkdownShortcuts({});
+    }
+  }, [settingsDraft.shortcutsJson]);
+
+  const updateShortcutDraft = (action, key) => {
+    setSettingsDraft((prev) => {
+      let parsed = {};
+      try {
+        parsed = JSON.parse(prev.shortcutsJson || '{}');
+      } catch {
+        parsed = shortcutDraftObject;
+      }
+      const next = normalizeMarkdownShortcuts({ ...parsed, [action]: key });
+      return {
+        ...prev,
+        shortcutsJson: JSON.stringify(next, null, 2)
+      };
+    });
+    setSettingsError('');
+  };
+
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      if (noteEditorRef.current && typeof noteEditorRef.current.flush === 'function') {
+        noteEditorRef.current.flush();
+      }
+    };
+
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const modifier = event.metaKey || event.ctrlKey;
+      const target = event.target;
+      const isTextInput = target && (
+        target.tagName === 'INPUT'
+        || target.tagName === 'TEXTAREA'
+        || target.isContentEditable
+        || target.closest?.('.cm-editor')
+      );
+
+      if (event.key === 'Escape') {
+        if (isSettingsOpen) {
+          closeSettings();
+          return;
+        }
+        if (modalTaskId) {
+          closeModal();
+          return;
+        }
+        setIsMenuOpen(false);
+      }
+
+      if (!modifier) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === 'f') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+      if (!isTextInput && key === 'n') {
+        event.preventDefault();
+        handleTaskAddClick();
+        return;
+      }
+      if (!isTextInput && key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redoTasks();
+        } else {
+          undoTasks();
+        }
+        return;
+      }
+      if (!isTextInput && key === 'y') {
+        event.preventDefault();
+        redoTasks();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [filters, isSettingsOpen, modalTaskId, settings, tasks, modalTagsInput]);
 
   const splitStyle = isCompact ? undefined : { gridTemplateColumns: `${leftWidth}px 10px minmax(0, 1fr)` };
   const vaultLabel = vaultPath ? getPathBaseName(vaultPath) : 'No Vault';
@@ -2765,6 +3284,15 @@ function App() {
                     <button type="button" className="menu-action-btn" onClick={runMenuAction(handleImportSingleFile)} disabled={isVaultBusy}>
                       Import File
                     </button>
+                    <button type="button" className="menu-action-btn" onClick={runMenuAction(undoTasks)}>
+                      Undo
+                    </button>
+                    <button type="button" className="menu-action-btn" onClick={runMenuAction(redoTasks)}>
+                      Redo
+                    </button>
+                    <button type="button" className="menu-action-btn" onClick={runMenuAction(openSettings)}>
+                      Settings
+                    </button>
                     <button type="button" className="menu-action-btn danger" onClick={runMenuAction(handleClearAllTasks)} disabled={isVaultBusy}>
                       Clear Tasks
                     </button>
@@ -2773,6 +3301,16 @@ function App() {
               </div>
             </div>
             <div className="filter-row">
+              <label className="filter-field filter-field-search">
+                <span>Search</span>
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  value={filters.query}
+                  onChange={(event) => setFilters((prev) => ({ ...prev, query: event.target.value }))}
+                  placeholder="Name, tag, note"
+                />
+              </label>
               <label className="filter-field">
                 <span>Status</span>
                 <select
@@ -2780,6 +3318,17 @@ function App() {
                   onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
                 >
                   {STATUS_FILTER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field filter-field-date">
+                <span>Quick</span>
+                <select
+                  value={filters.quick}
+                  onChange={(event) => setFilters((prev) => ({ ...prev, quick: event.target.value }))}
+                >
+                  {QUICK_FILTER_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
@@ -2810,7 +3359,9 @@ function App() {
                 onClick={() => setFilters({
                   status: 'all',
                   dueBy: '',
-                  tag: 'all'
+                  tag: 'all',
+                  quick: 'all',
+                  query: ''
                 })}
               >
                 Clear
@@ -2891,7 +3442,7 @@ function App() {
                     }}
                     key={task.id}
                   >
-                    <button type="button" className="task-open-id" onClick={() => setModalTaskId(task.id)}>#{task.id}</button>
+                    <button type="button" className="task-open-id" onClick={() => setModalTaskId(task.id)}>#{getTaskIndex(task)}</button>
                     <button
                       type="button"
                       className={`task-open-name ${isOverdue ? 'overdue' : ''}`}
@@ -3069,7 +3620,7 @@ function App() {
                         }}
                       >
                         <span className="chart-status-dot" aria-hidden="true" />
-                        <span className="chart-task-no">#{task.id}</span>
+                        <span className="chart-task-no">#{getTaskIndex(task)}</span>
                         <span className="chart-task-title">{task.name}</span>
                       </button>
                       <div
@@ -3164,8 +3715,15 @@ function App() {
         <div className="modal-overlay" onClick={closeModal}>
           <section className="task-modal" onClick={(event) => event.stopPropagation()}>
             <header>
-              <h2>Task #{modalTask.id} Detail</h2>
+              <h2>Task #{getTaskIndex(modalTask)} Detail</h2>
               <div className="modal-actions">
+                <button
+                  type="button"
+                  className="modal-secondary"
+                  onClick={() => duplicateTask(modalTask.id)}
+                >
+                  Duplicate
+                </button>
                 <button
                   type="button"
                   className="modal-delete"
@@ -3181,6 +3739,20 @@ function App() {
             </header>
 
             <div className="modal-grid">
+              <datalist id="tag-suggestions">
+                {tagPaths
+                  .filter((tagPath) => tagPath !== UNTAGGED_KEY)
+                  .map((tagPath) => (
+                    <option key={tagPath} value={`#${tagPath}`} />
+                  ))}
+              </datalist>
+              <datalist id="dependency-suggestions">
+                {tasks
+                  .filter((task) => task.id !== modalTask.id)
+                  .map((task) => (
+                    <option key={task.id} value={String(task.id)} label={`#${getTaskIndex(task)} ${task.name}`} />
+                  ))}
+              </datalist>
               <label className="modal-field-name">
                 <span>Name</span>
                 <input
@@ -3196,6 +3768,7 @@ function App() {
                   type="text"
                   placeholder="#task/hoge #work"
                   value={modalTagsInput}
+                  list="tag-suggestions"
                   onChange={(event) => {
                     setModalTagsInput(event.target.value);
                   }}
@@ -3258,6 +3831,7 @@ function App() {
                 <input
                   type="text"
                   value={toDependsText(modalTask.dependsOn)}
+                  list="dependency-suggestions"
                   onChange={(event) => updateTask(modalTask.id, {
                     dependsOn: parseDependsText(event.target.value, modalTask.id)
                   })}
@@ -3266,15 +3840,159 @@ function App() {
             </div>
 
             <div className="markdown-section">
-              <h3>Notes (Markdown Live)</h3>
+              <div className="markdown-section-head">
+                <h3>Notes (Markdown Live)</h3>
+                <span className="markdown-save-preview">{modalMarkdownPath}</span>
+              </div>
               <LiveMarkdownEditor
                 ref={noteEditorRef}
                 editorKey={`note-${modalTask.id}`}
                 markdown={modalTask.markdown}
                 onChange={(value) => updateTask(modalTask.id, { markdown: value })}
                 placeholder="Type task notes with markdown..."
+                markdownShortcuts={settings.markdownShortcuts}
               />
             </div>
+          </section>
+        </div>
+      )}
+
+      {isSettingsOpen && (
+        <div className="modal-overlay" onClick={closeSettings}>
+          <section className="task-modal settings-modal" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <h2>General Settings</h2>
+              <div className="modal-actions">
+                <button type="button" className="modal-close" onClick={saveSettings}>Save</button>
+                <button type="button" className="modal-delete" onClick={closeSettings}>Cancel</button>
+              </div>
+            </header>
+
+            <div className="settings-grid">
+              <label>
+                <span>Index Digits</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="8"
+                  value={settingsDraft.indexDigits}
+                  onChange={(event) => setSettingsDraft((prev) => ({ ...prev, indexDigits: event.target.value }))}
+                />
+              </label>
+              <label>
+                <span>Next Index</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={settingsDraft.nextTaskIndex}
+                  onChange={(event) => setSettingsDraft((prev) => ({ ...prev, nextTaskIndex: event.target.value }))}
+                />
+              </label>
+              <label className="settings-wide">
+                <span>File Name Rule</span>
+                <input
+                  type="text"
+                  value={settingsDraft.fileNamePattern}
+                  placeholder="{index}_{name}"
+                  onChange={(event) => setSettingsDraft((prev) => ({ ...prev, fileNamePattern: event.target.value }))}
+                />
+              </label>
+            </div>
+
+            <section className="settings-section">
+              <h3>Markdown Shortcuts</h3>
+              <div className="shortcut-grid">
+                {Object.entries(MARKDOWN_SHORTCUT_ACTIONS).map(([action, config]) => (
+                  <label key={action}>
+                    <span>{config.label}</span>
+                    <input
+                      type="text"
+                      value={shortcutDraftObject[action] || ''}
+                      onChange={(event) => updateShortcutDraft(action, event.target.value)}
+                    />
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <label className="settings-json-field">
+              <span>Markdown Shortcuts JSON</span>
+              <textarea
+                value={settingsDraft.shortcutsJson}
+                spellCheck={false}
+                onChange={(event) => {
+                  setSettingsDraft((prev) => ({ ...prev, shortcutsJson: event.target.value }));
+                  setSettingsError('');
+                }}
+              />
+            </label>
+            <div className="settings-actions">
+              <button type="button" className="menu-action-btn" onClick={resetShortcutDraft}>
+                Reset Shortcuts
+              </button>
+              {settingsError && <span className="settings-error">{settingsError}</span>}
+            </div>
+
+            <section className="settings-section">
+              <h3>Tags</h3>
+              <div className="tag-manager-list">
+                {tagPaths.filter((tagPath) => tagPath !== UNTAGGED_KEY).length === 0 && (
+                  <div className="settings-empty">No tags yet.</div>
+                )}
+                {tagPaths
+                  .filter((tagPath) => tagPath !== UNTAGGED_KEY)
+                  .map((tagPath) => {
+                    const palette = getTagPalette(tagPath, tagColors);
+                    return (
+                      <div className="tag-manager-row" key={tagPath}>
+                        <input
+                          type="color"
+                          value={palette.baseHex}
+                          aria-label={`${tagPath} color`}
+                          onChange={(event) => {
+                            const nextColor = normalizeHexColor(event.target.value);
+                            if (nextColor) {
+                              setTagColors((prev) => ({ ...prev, [tagPath]: nextColor }));
+                            }
+                          }}
+                        />
+                        <input
+                          type="text"
+                          value={tagRenameDrafts[tagPath] ?? tagPath}
+                          onChange={(event) => setTagRenameDrafts((prev) => ({ ...prev, [tagPath]: event.target.value }))}
+                        />
+                        <button
+                          type="button"
+                          className="menu-action-btn"
+                          onClick={() => renameTagPath(tagPath, tagRenameDrafts[tagPath] ?? tagPath)}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          className="menu-action-btn danger"
+                          onClick={() => deleteTagPath(tagPath)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <h3>Vault Sync Log</h3>
+              <div className="vault-log-list">
+                {vaultLog.length === 0 && <div className="settings-empty">No sync log yet.</div>}
+                {vaultLog.map((entry, index) => (
+                  <div className="vault-log-row" key={`${entry.timestamp}-${index}`}>
+                    <span>{entry.timestamp}</span>
+                    <strong>{entry.message}</strong>
+                  </div>
+                ))}
+              </div>
+            </section>
           </section>
         </div>
       )}
