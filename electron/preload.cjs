@@ -14,5 +14,6 @@ contextBridge.exposeInMainWorld('desktopApi', {
     files,
     deleteStaleManaged: Boolean(options.deleteStaleManaged)
   }),
+  appendVaultLog: (vaultPath, entry) => ipcRenderer.invoke('vault:append-log', { vaultPath, entry }),
   logRenderer: (level, message) => ipcRenderer.send('renderer:log', { level, message })
 });

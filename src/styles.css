@@ -190,6 +190,14 @@ body.split-dragging {
   min-width: 0;
 }
 
+.toolbar-right-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 .task-add-btn {
   cursor: pointer;
   height: 34px;
@@ -222,7 +230,8 @@ body.split-dragging {
   accent-color: #2f8f79;
 }
 
-.theme-toggle {
+.theme-toggle,
+.toolbar-icon-btn {
   height: 34px;
   width: 34px;
   border-radius: 9px;
@@ -234,11 +243,120 @@ body.split-dragging {
   cursor: pointer;
 }
 
+.toolbar-icon-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.toolbar-icon-btn.is-active {
+  border-color: color-mix(in oklab, var(--accent) 52%, var(--line) 48%);
+  background: color-mix(in oklab, var(--accent-soft) 24%, var(--control-bg-strong) 76%);
+}
+
+.toolbar-icon-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.search-anchor {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.due-anchor {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.search-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  width: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--control-bg-strong);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.search-trigger.is-active {
+  border-color: color-mix(in oklab, var(--accent) 52%, var(--line) 48%);
+  background: color-mix(in oklab, var(--accent-soft) 24%, var(--control-bg-strong) 76%);
+}
+
+.search-popover,
+.due-popover {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  width: min(320px, calc(100vw - 36px));
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--control-bg-strong);
+  box-shadow: 0 14px 32px rgba(25, 42, 47, 0.22);
+  z-index: 70;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.due-popover {
+  width: min(246px, calc(100vw - 36px));
+}
+
+.search-popover-field,
+.due-popover-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.search-popover-field span,
+.due-popover-field span {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.search-popover-field input,
+.due-popover-field input {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--control-bg);
+  color: var(--ink);
+  font: inherit;
+  padding: 0 9px;
+  min-width: 0;
+}
+
+.search-clear-btn {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--control-bg);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0 10px;
+}
+
 .filter-row {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(116px, 1.4fr) minmax(82px, 0.9fr) minmax(96px, 1fr) minmax(96px, 1fr) minmax(96px, 1fr) 64px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .filter-field {
@@ -280,10 +398,32 @@ body.split-dragging {
   padding: 0 8px;
 }
 
+.menu-icon-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.menu-icon-btn {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--control-bg);
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .menu-anchor {
   position: relative;
   margin-left: auto;
   flex: 0 0 auto;
+}
+
+.toolbar-right-actions .menu-anchor {
+  margin-left: 0;
 }
 
 .menu-trigger {
@@ -316,8 +456,49 @@ body.split-dragging {
 }
 
 .menu-vault {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding-bottom: 4px;
   border-bottom: 1px solid rgba(42, 65, 69, 0.12);
+}
+
+.menu-display-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.menu-vault .vault-chip {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-lightning-toggle {
+  position: relative;
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+.menu-lightning-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.menu-lightning-toggle:has(input:checked) {
+  border-color: color-mix(in oklab, var(--accent) 52%, var(--line) 48%);
+  background: color-mix(in oklab, var(--accent-soft) 24%, var(--control-bg-strong) 76%);
+}
+
+.menu-theme-toggle {
+  height: 34px;
+  width: 34px;
 }
 
 .menu-action-btn {
@@ -370,6 +551,8 @@ body.split-dragging {
 
 .vault-status.inline-status {
   margin-left: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1049,7 +1232,7 @@ body.split-dragging {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .settings-grid label,
@@ -1079,14 +1262,39 @@ body.split-dragging {
 }
 
 .settings-section {
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 10px;
   border-top: 1px solid var(--line);
 }
 
-.settings-section h3 {
-  margin: 0 0 10px;
-  font-size: 0.9rem;
+.settings-section:first-of-type {
+  border-top: none;
+}
+
+.settings-section-toggle {
+  width: 100%;
+  height: 38px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.settings-section-caret {
+  width: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.settings-section-body {
+  padding-bottom: 8px;
 }
 
 .shortcut-grid {
@@ -1107,6 +1315,19 @@ body.split-dragging {
   display: flex;
   flex-direction: column;
   gap: 7px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.tag-manager-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tag-manager-actions .menu-action-btn {
+  width: auto;
+  min-width: 148px;
+  text-align: center;
 }
 
 .tag-manager-row {
@@ -1479,7 +1700,6 @@ body.split-dragging {
 :root[data-theme='dark'] .settings-grid span,
 :root[data-theme='dark'] .settings-json-field span,
 :root[data-theme='dark'] .shortcut-grid span,
-:root[data-theme='dark'] .settings-section h3,
 :root[data-theme='dark'] .markdown-section h3 {
   color: var(--muted);
 }

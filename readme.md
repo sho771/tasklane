@@ -58,6 +58,15 @@
 - Vault 同期ログを全般設定から確認できるようにしました。
 - アプリ終了時やモーダルを閉じる時に Notes の内容を保存する処理を強化しました。
 
+## v0.3.1 の主な変更点
+
+- 検索、期限日フィルタ、フィルタ解除をツールバーのアイコンボタン化し、入力欄はポップアップ表示にしました。
+- Undo / Redo を三点メニュー外へ移動し、三点メニュー左のアイコンボタンにしました。
+- 稲妻線表示とライト/ダーク切替を三点メニュー内の Vault 表示行へ移動しました。
+- 設定モーダルの各セクションを開閉式にしました。
+- Vault 同期ログを画面上では直近 10 件表示にし、Vault 配下の `.log/vault_log.log` に追記保存するようにしました。
+- 自動同期前提に合わせて `Export` を削除し、`#task` 付きノート取り込みを Settings の `Tags` セクションへ移動しました。
+
 ## タスク操作
 
 - タスク名またはタスク No をクリックすると詳細モーダルを開けます。
@@ -105,8 +114,8 @@ Notes は Markdown ソースを保持したまま編集します。
 - `File Name Rule`: Markdown ファイル名のルールです。`{index}`、`{no}`、`{id}`、`{name}`、`{uid}`、`{status}` を使えます。
 - `Markdown Shortcuts`: Markdown 入力ショートカットを一覧から編集できます。
 - `Markdown Shortcuts JSON`: Markdown 入力ショートカットの割り当てです。`bold`、`italic`、`heading1`、`checklist` などのアクションに CodeMirror 形式のキー名を設定できます。
-- `Tags`: 既存タグの色変更、リネーム、タスクからのタグ削除を行えます。
-- `Vault Sync Log`: Vault 選択、インポート、エクスポート、自動同期の履歴を確認できます。
+- `Tags`: 既存タグの色変更、リネーム、タスクからのタグ削除、`#task` 付きノートの取り込みを行えます。
+- `Vault Sync Log`: Vault 選択、インポート、自動同期の直近 10 件を確認できます。
 
 ## ガントチャート操作
 
@@ -134,12 +143,12 @@ Notes は Markdown ソースを保持したまま編集します。
 - `Vault`: Obsidian Vault フォルダを選択します。
 - Vault 選択時に、Vault 内の Markdown ファイルを読み込んでタスクへ反映します。
 - `Vault Off`: 現在の Vault 接続を解除します。
-- `Export`: 各タスクを Markdown ファイルとして Vault に保存します。
-- `Import Tag`: Vault 内の `#task` 付き Markdown ノートをタスクとして取り込みます。
 - `Import File`: 選択した 1 つの Markdown ファイルからタスクを取り込みます。
 - `Clear Tasks`: すべてのタスクを削除します。
 - Vault 選択後は、タスクの追加、削除、修正が Markdown ファイルへデバウンス付きで自動同期されます。
+- Vault 内の `#task` 付き Markdown ノート取り込みは、Settings の `Tags` セクションから実行できます。
 - Tasklane が管理する Markdown ファイルは、削除やタグ変更に合わせて同期されます。
+- Vault 同期ログは画面上では直近 10 件を表示し、Vault 配下の `.log/vault_log.log` に追記保存します。
 
 ## Markdown ファイルの保存ルール
 
@@ -206,5 +215,5 @@ npm run build:win
 - タスクデータは renderer 側の `localStorage` に保存されます。
 - Vault パス、左右ペイン幅、タグ色、テーマ設定も `localStorage` に保存されます。
 - Vault 連携は Markdown ファイルを介して行います。
-- `Import` / `Export` に加えて、Vault 選択中はタスク編集時の自動保存も行います。
+- Vault 選択中はタスク編集時の自動保存を行います。
 - README は日本語で管理します。今後追記する場合も日本語で記載してください。

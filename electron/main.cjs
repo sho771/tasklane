@@ -372,6 +372,25 @@ ipcMain.handle('vault:sync-markdown-files', async (_event, payload) => {
   return { writtenCount: written.length, writtenPaths: written, deletedCount: deleted.length, deletedPaths: deleted };
 });
 
+ipcMain.handle('vault:append-log', async (_event, payload) => {
+  const vaultPath = payload && typeof payload.vaultPath === 'string' ? payload.vaultPath : '';
+  const entry = payload && typeof payload.entry === 'string' ? payload.entry : '';
+
+  if (!vaultPath.trim()) {
+    throw new Error('vaultPath is required');
+  }
+  if (!entry.trim()) {
+    return { written: false };
+  }
+
+  const resolvedVault = path.resolve(vaultPath);
+  await fs.mkdir(resolvedVault, { recursive: true });
+  const logPath = resolveAndValidatePath(resolvedVault, path.join('.log', 'vault_log.log'));
+  await fs.mkdir(path.dirname(logPath), { recursive: true });
+  await fs.appendFile(logPath, `${entry.replace(/[\r\n]+/g, ' ')}\n`, 'utf8');
+  return { written: true, relativePath: toPosixPath(path.join('.log', 'vault_log.log')) };
+});
+
 ipcMain.on('renderer:log', (_event, payload) => {
   const level = payload && typeof payload.level === 'string' ? payload.level : 'info';
   const message = payload && typeof payload.message === 'string' ? payload.message : '';

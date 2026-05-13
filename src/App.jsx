@@ -94,6 +94,75 @@ const DEFAULT_SETTINGS = {
   fileNamePattern: '{index}_{name}',
   markdownShortcuts: DEFAULT_MARKDOWN_SHORTCUTS
 };
+const DEFAULT_SETTINGS_SECTIONS = {
+  general: true,
+  shortcuts: true,
+  shortcutJson: false,
+  tags: false,
+  vaultLog: true
+};
+
+function AppIcon({ name, size = 18 }) {
+  const commonProps = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true'
+  };
+
+  if (name === 'search') {
+    return (
+      <svg {...commonProps}>
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-4.2-4.2" />
+      </svg>
+    );
+  }
+  if (name === 'calendar') {
+    return (
+      <svg {...commonProps}>
+        <path d="M8 2v4" />
+        <path d="M16 2v4" />
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M3 10h18" />
+        <path d="M8 14h.01" />
+        <path d="M12 14h.01" />
+        <path d="M16 14h.01" />
+      </svg>
+    );
+  }
+  if (name === 'eraser') {
+    return (
+      <svg {...commonProps}>
+        <path d="m7 21-4-4 10-10 8 8-6 6Z" />
+        <path d="m11 7 6 6" />
+        <path d="M3 21h18" />
+      </svg>
+    );
+  }
+  if (name === 'undo') {
+    return (
+      <svg {...commonProps}>
+        <path d="M9 14 4 9l5-5" />
+        <path d="M4 9h10a6 6 0 0 1 0 12h-2" />
+      </svg>
+    );
+  }
+  if (name === 'redo') {
+    return (
+      <svg {...commonProps}>
+        <path d="m15 14 5-5-5-5" />
+        <path d="M20 9H10a6 6 0 0 0 0 12h2" />
+      </svg>
+    );
+  }
+  return null;
+}
 
 const taskkanriCodeLanguages = [
   LanguageDescription.of({
@@ -1614,7 +1683,10 @@ function App() {
   const [vaultLog, setVaultLog] = useState([]);
   const [isVaultBusy, setIsVaultBusy] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isDueOpen, setIsDueOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [openSettingsSections, setOpenSettingsSections] = useState(DEFAULT_SETTINGS_SECTIONS);
   const [settings, setSettings] = useState(() => loadInitialSettings());
   const [settingsDraft, setSettingsDraft] = useState(() => {
     const initial = loadInitialSettings();
@@ -1649,7 +1721,10 @@ function App() {
   const menuRef = useRef(null);
   const statusTimerRef = useRef(null);
   const autoSyncTimerRef = useRef(null);
+  const searchPopupRef = useRef(null);
   const searchInputRef = useRef(null);
+  const duePopupRef = useRef(null);
+  const dueInputRef = useRef(null);
   const historyRef = useRef([]);
   const redoRef = useRef([]);
 
@@ -1793,6 +1868,56 @@ function App() {
       window.removeEventListener('keydown', onEsc);
     };
   }, [isMenuOpen]);
+
+  useEffect(() => {
+    if (!isSearchOpen) {
+      return undefined;
+    }
+
+    const onMouseDown = (event) => {
+      if (searchPopupRef.current && !searchPopupRef.current.contains(event.target)) {
+        setIsSearchOpen(false);
+      }
+    };
+
+    const onEsc = (event) => {
+      if (event.key === 'Escape') {
+        setIsSearchOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('keydown', onEsc);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('keydown', onEsc);
+    };
+  }, [isSearchOpen]);
+
+  useEffect(() => {
+    if (!isDueOpen) {
+      return undefined;
+    }
+
+    const onMouseDown = (event) => {
+      if (duePopupRef.current && !duePopupRef.current.contains(event.target)) {
+        setIsDueOpen(false);
+      }
+    };
+
+    const onEsc = (event) => {
+      if (event.key === 'Escape') {
+        setIsDueOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('keydown', onEsc);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('keydown', onEsc);
+    };
+  }, [isDueOpen]);
 
   useEffect(() => {
     if (!modalTaskId) {
@@ -2539,7 +2664,8 @@ function App() {
     return replaceTasksWithImportedRecords(parsedRecords);
   };
 
-  const appendVaultLog = (message) => {
+  const appendVaultLog = (message, targetVaultPath = vaultPath) => {
+    const createdAt = new Date();
     const timestamp = new Date().toLocaleString('ja-JP', {
       month: '2-digit',
       day: '2-digit',
@@ -2547,12 +2673,21 @@ function App() {
       minute: '2-digit',
       second: '2-digit'
     });
-    setVaultLog((prev) => [{ timestamp, message }, ...prev].slice(0, 30));
+    setVaultLog((prev) => [{ timestamp, message }, ...prev].slice(0, 10));
+
+    const api = getDesktopApi();
+    if (targetVaultPath && api && typeof api.appendVaultLog === 'function') {
+      api.appendVaultLog(targetVaultPath, `[${createdAt.toISOString()}] ${message}`).catch((error) => {
+        if (api && typeof api.logRenderer === 'function') {
+          api.logRenderer('warn', `vault log write failed: ${error.message}`);
+        }
+      });
+    }
   };
 
-  const showVaultStatus = (message) => {
+  const showVaultStatus = (message, targetVaultPath = vaultPath) => {
     setVaultStatus(message);
-    appendVaultLog(message);
+    appendVaultLog(message, targetVaultPath);
     if (statusTimerRef.current) {
       window.clearTimeout(statusTimerRef.current);
     }
@@ -2577,36 +2712,13 @@ function App() {
         const { importedCount } = await loadTasksFromVaultPath(result.path);
         const vaultName = getPathBaseName(result.path);
         if (importedCount > 0) {
-          showVaultStatus(`Vault selected: ${vaultName}. Loaded ${importedCount} tasks.`);
+          showVaultStatus(`Vault selected: ${vaultName}. Loaded ${importedCount} tasks.`, result.path);
         } else {
-          showVaultStatus(`Vault selected: ${vaultName}. No task markdown found.`);
+          showVaultStatus(`Vault selected: ${vaultName}. No task markdown found.`, result.path);
         }
       }
     } catch (error) {
       showVaultStatus(`Failed to select vault: ${error.message}`);
-    } finally {
-      setIsVaultBusy(false);
-    }
-  };
-
-  const handleExportTasksToVault = async () => {
-    if (!vaultPath) {
-      showVaultStatus('Select a vault first.');
-      return;
-    }
-    const api = getDesktopApi();
-    if (!api) {
-      showVaultStatus('Vault API is unavailable.');
-      return;
-    }
-
-    setIsVaultBusy(true);
-    try {
-      const result = await syncTasksToVault(vaultPath, tasks, { deleteStaleManaged: true });
-      const deletedText = result.deletedCount ? ` / Deleted ${result.deletedCount}` : '';
-      showVaultStatus(`Exported ${result.writtenCount}${deletedText} tasks to ${getPathBaseName(vaultPath)}`);
-    } catch (error) {
-      showVaultStatus(`Export failed: ${error.message}`);
     } finally {
       setIsVaultBusy(false);
     }
@@ -3149,6 +3261,72 @@ function App() {
     setSettingsError('');
   };
 
+  const toggleSettingsSection = (sectionKey) => {
+    setOpenSettingsSections((prev) => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey]
+    }));
+  };
+
+  const renderSettingsSection = (sectionKey, title, children) => {
+    const isOpen = Boolean(openSettingsSections[sectionKey]);
+    return (
+      <section className={`settings-section ${isOpen ? 'is-open' : 'is-collapsed'}`}>
+        <button
+          type="button"
+          className="settings-section-toggle"
+          aria-expanded={isOpen}
+          onClick={() => toggleSettingsSection(sectionKey)}
+        >
+          <span className="settings-section-caret">{isOpen ? '▾' : '▸'}</span>
+          <span>{title}</span>
+        </button>
+        {isOpen && (
+          <div className="settings-section-body">
+            {children}
+          </div>
+        )}
+      </section>
+    );
+  };
+
+  const openSearchPopup = () => {
+    setIsDueOpen(false);
+    setIsSearchOpen(true);
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+  };
+
+  const openDuePopup = () => {
+    setIsSearchOpen(false);
+    setIsDueOpen(true);
+    window.requestAnimationFrame(() => {
+      dueInputRef.current?.focus();
+    });
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      status: 'all',
+      dueBy: '',
+      tag: 'all',
+      quick: 'all',
+      query: ''
+    });
+    setIsSearchOpen(false);
+    setIsDueOpen(false);
+  };
+
+  const hasActiveFilters = Boolean(
+    filters.query
+    || filters.dueBy
+    || filters.tag !== 'all'
+    || filters.status !== 'all'
+    || filters.quick !== 'all'
+  );
+
   useEffect(() => {
     const onBeforeUnload = () => {
       if (noteEditorRef.current && typeof noteEditorRef.current.flush === 'function') {
@@ -3180,6 +3358,14 @@ function App() {
           closeModal();
           return;
         }
+        if (isDueOpen) {
+          setIsDueOpen(false);
+          return;
+        }
+        if (isSearchOpen) {
+          setIsSearchOpen(false);
+          return;
+        }
         setIsMenuOpen(false);
       }
 
@@ -3190,8 +3376,7 @@ function App() {
       const key = event.key.toLowerCase();
       if (key === 'f') {
         event.preventDefault();
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
+        openSearchPopup();
         return;
       }
       if (!isTextInput && key === 'n') {
@@ -3216,7 +3401,7 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [filters, isSettingsOpen, modalTaskId, settings, tasks, modalTagsInput]);
+  }, [filters, isDueOpen, isSearchOpen, isSettingsOpen, modalTaskId, settings, tasks, modalTagsInput]);
 
   const splitStyle = isCompact ? undefined : { gridTemplateColumns: `${leftWidth}px 10px minmax(0, 1fr)` };
   const vaultLabel = vaultPath ? getPathBaseName(vaultPath) : 'No Vault';
@@ -3234,83 +3419,167 @@ function App() {
               <button type="button" className="task-add-btn" onClick={handleTaskAddClick}>
                 Task Add
               </button>
-              <label className="lightning-toggle">
-                <input
-                  type="checkbox"
-                  checked={showLightning}
-                  onChange={(event) => setShowLightning(event.target.checked)}
-                />
-                <span>⚡</span>
-              </label>
-              <button
-                type="button"
-                className="theme-toggle"
-                onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-              >
-                {theme === 'dark' ? '☀' : '☾'}
-              </button>
-              {vaultStatus && <span className="vault-status inline-status">{vaultStatus}</span>}
-              <div className="menu-anchor" ref={menuRef}>
+              <div className="search-anchor" ref={searchPopupRef}>
                 <button
                   type="button"
-                  className="menu-trigger"
-                  aria-label="Open actions menu"
-                  aria-expanded={isMenuOpen}
-                  onClick={() => setIsMenuOpen((prev) => !prev)}
+                  className={`search-trigger ${filters.query ? 'is-active' : ''}`}
+                  aria-label="Open task search"
+                  aria-expanded={isSearchOpen}
+                  onClick={openSearchPopup}
                 >
-                  ⋮
+                  <AppIcon name="search" />
                 </button>
-                {isMenuOpen && (
-                  <div className="toolbar-menu">
-                    <div className="menu-vault">
-                      <span className={`vault-chip ${vaultPath ? '' : 'muted'}`} title={vaultPath || 'No vault selected'}>
-                        {vaultLabel}
-                      </span>
-                    </div>
-                    <button type="button" className="menu-action-btn" onClick={runMenuAction(handleSelectVault)} disabled={isVaultBusy}>
-                      Vault
-                    </button>
-                    <button type="button" className="menu-action-btn" onClick={runMenuAction(handleDisconnectVault)} disabled={!vaultPath || isVaultBusy}>
-                      Vault Off
-                    </button>
-                    <button type="button" className="menu-action-btn" onClick={runMenuAction(handleExportTasksToVault)} disabled={!vaultPath || isVaultBusy}>
-                      Export
-                    </button>
-                    <button type="button" className="menu-action-btn" onClick={runMenuAction(handleImportNotesFromVault)} disabled={!vaultPath || isVaultBusy}>
-                      Import Tag
-                    </button>
-                    <button type="button" className="menu-action-btn" onClick={runMenuAction(handleImportSingleFile)} disabled={isVaultBusy}>
-                      Import File
-                    </button>
-                    <button type="button" className="menu-action-btn" onClick={runMenuAction(undoTasks)}>
-                      Undo
-                    </button>
-                    <button type="button" className="menu-action-btn" onClick={runMenuAction(redoTasks)}>
-                      Redo
-                    </button>
-                    <button type="button" className="menu-action-btn" onClick={runMenuAction(openSettings)}>
-                      Settings
-                    </button>
-                    <button type="button" className="menu-action-btn danger" onClick={runMenuAction(handleClearAllTasks)} disabled={isVaultBusy}>
-                      Clear Tasks
-                    </button>
+                {isSearchOpen && (
+                  <div className="search-popover">
+                    <label className="search-popover-field">
+                      <span>Search</span>
+                      <input
+                        ref={searchInputRef}
+                        type="search"
+                        value={filters.query}
+                        onChange={(event) => setFilters((prev) => ({ ...prev, query: event.target.value }))}
+                        placeholder="Name, tag, note"
+                      />
+                    </label>
+                    {filters.query && (
+                      <button
+                        type="button"
+                        className="search-clear-btn"
+                        onClick={() => {
+                          setFilters((prev) => ({ ...prev, query: '' }));
+                          searchInputRef.current?.focus();
+                        }}
+                      >
+                        Clear
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
+              <div className="due-anchor" ref={duePopupRef}>
+                <button
+                  type="button"
+                  className={`toolbar-icon-btn ${filters.dueBy ? 'is-active' : ''}`}
+                  aria-label="Open due date filter"
+                  aria-expanded={isDueOpen}
+                  title={filters.dueBy ? `Due by ${filters.dueBy}` : 'Due filter'}
+                  onClick={openDuePopup}
+                >
+                  <AppIcon name="calendar" />
+                </button>
+                {isDueOpen && (
+                  <div className="due-popover">
+                    <label className="due-popover-field">
+                      <span>Due</span>
+                      <input
+                        ref={dueInputRef}
+                        type="date"
+                        value={filters.dueBy}
+                        onChange={(event) => setFilters((prev) => ({ ...prev, dueBy: event.target.value }))}
+                      />
+                    </label>
+                    {filters.dueBy && (
+                      <button
+                        type="button"
+                        className="search-clear-btn"
+                        onClick={() => {
+                          setFilters((prev) => ({ ...prev, dueBy: '' }));
+                          dueInputRef.current?.focus();
+                        }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className={`toolbar-icon-btn ${hasActiveFilters ? 'is-active' : ''}`}
+                aria-label="Clear filters"
+                title="Clear filters"
+                disabled={!hasActiveFilters}
+                onClick={clearFilters}
+              >
+                <AppIcon name="eraser" />
+              </button>
+              {vaultStatus && <span className="vault-status inline-status">{vaultStatus}</span>}
+              <div className="toolbar-right-actions">
+                <button
+                  type="button"
+                  className="toolbar-icon-btn"
+                  aria-label="Undo"
+                  title="Undo"
+                  onClick={undoTasks}
+                >
+                  <AppIcon name="undo" />
+                </button>
+                <button
+                  type="button"
+                  className="toolbar-icon-btn"
+                  aria-label="Redo"
+                  title="Redo"
+                  onClick={redoTasks}
+                >
+                  <AppIcon name="redo" />
+                </button>
+                <div className="menu-anchor" ref={menuRef}>
+                  <button
+                    type="button"
+                    className="menu-trigger"
+                    aria-label="Open actions menu"
+                    aria-expanded={isMenuOpen}
+                    onClick={() => setIsMenuOpen((prev) => !prev)}
+                  >
+                    ⋮
+                  </button>
+                  {isMenuOpen && (
+                    <div className="toolbar-menu">
+                      <div className="menu-vault">
+                        <span className={`vault-chip ${vaultPath ? '' : 'muted'}`} title={vaultPath || 'No vault selected'}>
+                          {vaultLabel}
+                        </span>
+                        <div className="menu-display-controls">
+                          <label className="lightning-toggle menu-lightning-toggle" title="Progress line">
+                            <input
+                              type="checkbox"
+                              checked={showLightning}
+                              onChange={(event) => setShowLightning(event.target.checked)}
+                            />
+                            <span>⚡</span>
+                          </label>
+                          <button
+                            type="button"
+                            className="theme-toggle menu-theme-toggle"
+                            onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+                            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+                          >
+                            {theme === 'dark' ? '☀' : '☾'}
+                          </button>
+                        </div>
+                      </div>
+                      <button type="button" className="menu-action-btn" onClick={runMenuAction(handleSelectVault)} disabled={isVaultBusy}>
+                        Vault
+                      </button>
+                      <button type="button" className="menu-action-btn" onClick={runMenuAction(handleDisconnectVault)} disabled={!vaultPath || isVaultBusy}>
+                        Vault Off
+                      </button>
+                      <button type="button" className="menu-action-btn" onClick={runMenuAction(handleImportSingleFile)} disabled={isVaultBusy}>
+                        Import File
+                      </button>
+                      <button type="button" className="menu-action-btn" onClick={runMenuAction(openSettings)}>
+                        Settings
+                      </button>
+                      <button type="button" className="menu-action-btn danger" onClick={runMenuAction(handleClearAllTasks)} disabled={isVaultBusy}>
+                        Clear Tasks
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="filter-row">
-              <label className="filter-field filter-field-search">
-                <span>Search</span>
-                <input
-                  ref={searchInputRef}
-                  type="search"
-                  value={filters.query}
-                  onChange={(event) => setFilters((prev) => ({ ...prev, query: event.target.value }))}
-                  placeholder="Name, tag, note"
-                />
-              </label>
               <label className="filter-field">
                 <span>Status</span>
                 <select
@@ -3345,27 +3614,6 @@ function App() {
                   ))}
                 </select>
               </label>
-              <label className="filter-field filter-field-date">
-                <span>Due</span>
-                <input
-                  type="date"
-                  value={filters.dueBy}
-                  onChange={(event) => setFilters((prev) => ({ ...prev, dueBy: event.target.value }))}
-                />
-              </label>
-              <button
-                type="button"
-                className="filter-clear-btn"
-                onClick={() => setFilters({
-                  status: 'all',
-                  dueBy: '',
-                  tag: 'all',
-                  quick: 'all',
-                  query: ''
-                })}
-              >
-                Clear
-              </button>
             </div>
           </div>
 
@@ -3867,40 +4115,40 @@ function App() {
                 <button type="button" className="modal-delete" onClick={closeSettings}>Cancel</button>
               </div>
             </header>
+            {renderSettingsSection('general', 'General', (
+              <div className="settings-grid">
+                <label>
+                  <span>Index Digits</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="8"
+                    value={settingsDraft.indexDigits}
+                    onChange={(event) => setSettingsDraft((prev) => ({ ...prev, indexDigits: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  <span>Next Index</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={settingsDraft.nextTaskIndex}
+                    onChange={(event) => setSettingsDraft((prev) => ({ ...prev, nextTaskIndex: event.target.value }))}
+                  />
+                </label>
+                <label className="settings-wide">
+                  <span>File Name Rule</span>
+                  <input
+                    type="text"
+                    value={settingsDraft.fileNamePattern}
+                    placeholder="{index}_{name}"
+                    onChange={(event) => setSettingsDraft((prev) => ({ ...prev, fileNamePattern: event.target.value }))}
+                  />
+                </label>
+              </div>
+            ))}
 
-            <div className="settings-grid">
-              <label>
-                <span>Index Digits</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="8"
-                  value={settingsDraft.indexDigits}
-                  onChange={(event) => setSettingsDraft((prev) => ({ ...prev, indexDigits: event.target.value }))}
-                />
-              </label>
-              <label>
-                <span>Next Index</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={settingsDraft.nextTaskIndex}
-                  onChange={(event) => setSettingsDraft((prev) => ({ ...prev, nextTaskIndex: event.target.value }))}
-                />
-              </label>
-              <label className="settings-wide">
-                <span>File Name Rule</span>
-                <input
-                  type="text"
-                  value={settingsDraft.fileNamePattern}
-                  placeholder="{index}_{name}"
-                  onChange={(event) => setSettingsDraft((prev) => ({ ...prev, fileNamePattern: event.target.value }))}
-                />
-              </label>
-            </div>
-
-            <section className="settings-section">
-              <h3>Markdown Shortcuts</h3>
+            {renderSettingsSection('shortcuts', 'Markdown Shortcuts', (
               <div className="shortcut-grid">
                 {Object.entries(MARKDOWN_SHORTCUT_ACTIONS).map(([action, config]) => (
                   <label key={action}>
@@ -3913,29 +4161,42 @@ function App() {
                   </label>
                 ))}
               </div>
-            </section>
+            ))}
 
-            <label className="settings-json-field">
-              <span>Markdown Shortcuts JSON</span>
-              <textarea
-                value={settingsDraft.shortcutsJson}
-                spellCheck={false}
-                onChange={(event) => {
-                  setSettingsDraft((prev) => ({ ...prev, shortcutsJson: event.target.value }));
-                  setSettingsError('');
-                }}
-              />
-            </label>
-            <div className="settings-actions">
-              <button type="button" className="menu-action-btn" onClick={resetShortcutDraft}>
-                Reset Shortcuts
-              </button>
-              {settingsError && <span className="settings-error">{settingsError}</span>}
-            </div>
+            {renderSettingsSection('shortcutJson', 'Markdown Shortcuts JSON', (
+              <>
+                <label className="settings-json-field">
+                  <span>Markdown Shortcuts JSON</span>
+                  <textarea
+                    value={settingsDraft.shortcutsJson}
+                    spellCheck={false}
+                    onChange={(event) => {
+                      setSettingsDraft((prev) => ({ ...prev, shortcutsJson: event.target.value }));
+                      setSettingsError('');
+                    }}
+                  />
+                </label>
+                <div className="settings-actions">
+                  <button type="button" className="menu-action-btn" onClick={resetShortcutDraft}>
+                    Reset Shortcuts
+                  </button>
+                  {settingsError && <span className="settings-error">{settingsError}</span>}
+                </div>
+              </>
+            ))}
 
-            <section className="settings-section">
-              <h3>Tags</h3>
+            {renderSettingsSection('tags', 'Tags', (
               <div className="tag-manager-list">
+                <div className="tag-manager-actions">
+                  <button
+                    type="button"
+                    className="menu-action-btn"
+                    onClick={handleImportNotesFromVault}
+                    disabled={!vaultPath || isVaultBusy}
+                  >
+                    Import #task Notes
+                  </button>
+                </div>
                 {tagPaths.filter((tagPath) => tagPath !== UNTAGGED_KEY).length === 0 && (
                   <div className="settings-empty">No tags yet.</div>
                 )}
@@ -3979,10 +4240,9 @@ function App() {
                     );
                   })}
               </div>
-            </section>
+            ))}
 
-            <section className="settings-section">
-              <h3>Vault Sync Log</h3>
+            {renderSettingsSection('vaultLog', 'Vault Sync Log', (
               <div className="vault-log-list">
                 {vaultLog.length === 0 && <div className="settings-empty">No sync log yet.</div>}
                 {vaultLog.map((entry, index) => (
@@ -3991,8 +4251,9 @@ function App() {
                     <strong>{entry.message}</strong>
                   </div>
                 ))}
+                <div className="settings-empty">Full log: .log/vault_log.log</div>
               </div>
-            </section>
+            ))}
           </section>
         </div>
       )}
