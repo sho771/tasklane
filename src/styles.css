@@ -353,7 +353,7 @@ body.split-dragging {
 .filter-row {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   min-width: 0;
   overflow: hidden;
@@ -383,6 +383,28 @@ body.split-dragging {
   color: var(--ink);
   padding: 0 8px;
   min-width: 0;
+}
+
+.sort-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 5px;
+  min-width: 0;
+}
+
+.sort-direction-btn {
+  height: 28px;
+  width: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--control-bg);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0;
 }
 
 .filter-clear-btn {
@@ -588,6 +610,13 @@ body.split-dragging {
   overflow: auto;
   position: relative;
   z-index: 1;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.task-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .task-list-inner {
@@ -925,6 +954,36 @@ body.split-dragging {
 .chart-scroll {
   flex: 1;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(95, 114, 119, 0.46) transparent;
+}
+
+.chart-scroll:hover {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(75, 95, 101, 0.62) transparent;
+}
+
+.chart-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.chart-scroll:hover::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.chart-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chart-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(95, 114, 119, 0.42);
+}
+
+.chart-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(75, 95, 101, 0.62);
 }
 
 .chart-canvas {
@@ -1470,6 +1529,72 @@ body.split-dragging {
   background: rgba(243, 246, 247, 0.95);
 }
 
+.tag-chip-editor {
+  min-height: 32px;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--control-bg);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 3px 5px;
+}
+
+.tag-chip {
+  max-width: 100%;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--tag-chip-border, var(--accent)) 58%, #fff 42%);
+  background: color-mix(in oklab, var(--tag-chip-bg, #eef7f5) 78%, #fff 22%);
+  color: var(--tag-chip-color, var(--ink));
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  min-width: 0;
+}
+
+.tag-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-chip button {
+  height: 18px;
+  width: 18px;
+  border-radius: 50%;
+  border: none;
+  background: color-mix(in oklab, var(--tag-chip-border, var(--accent)) 24%, #fff 76%);
+  color: var(--tag-chip-color, var(--ink));
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  font: inherit;
+  font-size: 0.84rem;
+}
+
+.tag-chip-editor input {
+  flex: 1 1 90px;
+  min-width: 80px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  padding: 0 3px;
+  outline: none;
+}
+
 .markdown-section {
   margin-top: 14px;
 }
@@ -1839,7 +1964,7 @@ body.split-dragging {
 
 @media (max-width: 1280px) {
   .filter-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) 60px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

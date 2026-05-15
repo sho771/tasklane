@@ -38,6 +38,7 @@ const TAG_COLORS_KEY = 'taskkanri.desktop.tagColors.v1';
 const LEGACY_GROUP_COLORS_KEY = 'taskkanri.desktop.groupColors.v1';
 const THEME_KEY = 'taskkanri.desktop.theme.v1';
 const SETTINGS_KEY = 'taskkanri.desktop.settings.v1';
+const SORT_KEY = 'taskkanri.desktop.sortMode.v1';
 const IMPORT_TAG = '#task';
 const UNTAGGED_KEY = '__untagged__';
 const STATUS_OPTIONS = [
@@ -73,6 +74,15 @@ const QUICK_FILTER_OPTIONS = [
   { value: 'today', label: 'Today' },
   { value: 'week', label: 'This Week' }
 ];
+const TASK_SORT_FIELDS = [
+  { value: 'tag', label: 'Tag' },
+  { value: 'due', label: 'Due' },
+  { value: 'status', label: 'Status' },
+  { value: 'index', label: 'No' },
+  { value: 'name', label: 'Name' }
+];
+const DEFAULT_SORT_MODE = 'tagAsc';
+const TASK_SORT_VALUES = TASK_SORT_FIELDS.flatMap((field) => [`${field.value}Asc`, `${field.value}Desc`]);
 const MARKDOWN_SHORTCUT_ACTIONS = {
   bold: { label: 'Bold', defaultKey: 'Mod-b', type: 'wrap', before: '**', after: '**' },
   italic: { label: 'Italic', defaultKey: 'Mod-i', type: 'wrap', before: '*', after: '*' },
@@ -83,7 +93,8 @@ const MARKDOWN_SHORTCUT_ACTIONS = {
   heading3: { label: 'Heading 3', defaultKey: 'Mod-Alt-3', type: 'linePrefix', prefix: '### ' },
   unorderedList: { label: 'Bullet list', defaultKey: 'Mod-Shift-8', type: 'linePrefix', prefix: '- ' },
   checklist: { label: 'Checklist', defaultKey: 'Mod-Shift-9', type: 'linePrefix', prefix: '- [ ] ' },
-  quote: { label: 'Quote', defaultKey: 'Mod-Shift-.', type: 'linePrefix', prefix: '> ' }
+  quote: { label: 'Quote', defaultKey: 'Mod-Shift-.', type: 'linePrefix', prefix: '> ' },
+  table: { label: 'Table', defaultKey: 'Mod-Shift-t', type: 'table' }
 };
 const DEFAULT_MARKDOWN_SHORTCUTS = Object.fromEntries(
   Object.entries(MARKDOWN_SHORTCUT_ACTIONS).map(([action, config]) => [action, config.defaultKey])
@@ -1228,19 +1239,16 @@ function normalizeTags(rawTags) {
   )];
 }
 
-function tagsToInput(tags) {
-  if (!Array.isArray(tags) || tags.length === 0) {
-    return '';
-  }
-  return tags.map((tag) => `#${tag}`).join(' ');
-}
-
 function parseTagsInput(raw) {
   const text = String(raw || '').trim();
   if (!text) {
     return [];
   }
   return normalizeTags(text.split(/[,\s]+/));
+}
+
+function mergeTags(currentTags, incomingTags) {
+  return [...new Set([...normalizeTags(currentTags), ...normalizeTags(incomingTags)])];
 }
 
 function getPrimaryTagPath(task) {
@@ -1344,6 +1352,72 @@ function taskMatchesSearch(task, query) {
     task.markdown
   ].join(' ').toLowerCase();
   return haystack.includes(trimmed);
+}
+
+function normalizeSortMode(rawSortMode) {
+  return TASK_SORT_VALUES.includes(rawSortMode) ? rawSortMode : DEFAULT_SORT_MODE;
+}
+
+function getSortField(sortMode) {
+  return normalizeSortMode(sortMode).replace(/(Asc|Desc)$/u, '');
+}
+
+function getSortDirection(sortMode) {
+  return normalizeSortMode(sortMode).endsWith('Desc') ? 'Desc' : 'Asc';
+}
+
+function buildSortMode(field, direction) {
+  const safeField = TASK_SORT_FIELDS.some((option) => option.value === field) ? field : 'due';
+  const safeDirection = direction === 'Desc' ? 'Desc' : 'Asc';
+  return normalizeSortMode(`${safeField}${safeDirection}`);
+}
+
+function compareTasksBySortMode(a, b, sortMode = DEFAULT_SORT_MODE) {
+  const compareNumber = (left, right) => left - right;
+  const compareText = (left, right) => String(left || '').localeCompare(String(right || ''), 'ja', { numeric: true });
+  const byId = compareNumber(a.id, b.id);
+  const startCompare = compareNumber(parseDateKey(a.start).getTime(), parseDateKey(b.start).getTime());
+  const dueCompare = compareNumber(parseDateKey(a.end).getTime(), parseDateKey(b.end).getTime());
+  const indexCompare = compareNumber(getTaskIndex(a), getTaskIndex(b));
+  const nameCompare = compareText(a.name, b.name);
+  const tagCompare = compareTagPath(getPrimaryTagPath(a), getPrimaryTagPath(b));
+  const statusOrder = { todo: 0, doing: 1, done: 2 };
+  const statusCompare = compareNumber(
+    statusOrder[normalizeStatus(a.status, a.progress)] ?? 9,
+    statusOrder[normalizeStatus(b.status, b.progress)] ?? 9
+  );
+
+  if (sortMode === 'dueAsc') {
+    return dueCompare || startCompare || indexCompare || byId;
+  }
+  if (sortMode === 'dueDesc') {
+    return -dueCompare || startCompare || indexCompare || byId;
+  }
+  if (sortMode === 'indexAsc') {
+    return indexCompare || startCompare || byId;
+  }
+  if (sortMode === 'indexDesc') {
+    return -indexCompare || startCompare || byId;
+  }
+  if (sortMode === 'tagAsc') {
+    return tagCompare || dueCompare || indexCompare || byId;
+  }
+  if (sortMode === 'tagDesc') {
+    return -tagCompare || dueCompare || indexCompare || byId;
+  }
+  if (sortMode === 'nameAsc') {
+    return nameCompare || indexCompare || byId;
+  }
+  if (sortMode === 'nameDesc') {
+    return -nameCompare || indexCompare || byId;
+  }
+  if (sortMode === 'statusAsc') {
+    return statusCompare || dueCompare || startCompare || indexCompare || byId;
+  }
+  if (sortMode === 'statusDesc') {
+    return -statusCompare || dueCompare || startCompare || indexCompare || byId;
+  }
+  return dueCompare || startCompare || indexCompare || byId;
 }
 
 function parseDateFromLooseText(text) {
@@ -1523,20 +1597,99 @@ function selectMarkdownFileFromBrowser() {
   });
 }
 
-function wrapMarkdownSelection(view, before, after) {
-  const ranges = [];
-  const changes = view.state.selection.ranges.map((range, index) => {
+function findMarkdownWrapBounds(state, range, before, after) {
+  const doc = state.doc;
+  if (!range.empty) {
+    const beforeFrom = range.from - before.length;
+    const afterTo = range.to + after.length;
+    if (
+      beforeFrom >= 0
+      && afterTo <= doc.length
+      && doc.sliceString(beforeFrom, range.from) === before
+      && doc.sliceString(range.to, afterTo) === after
+    ) {
+      return {
+        beforeFrom,
+        beforeTo: range.from,
+        afterFrom: range.to,
+        afterTo
+      };
+    }
+    return null;
+  }
+
+  const line = doc.lineAt(range.from);
+  const lineText = line.text;
+  const offset = range.from - line.from;
+  const beforeIndex = lineText.lastIndexOf(before, offset);
+  if (beforeIndex < 0 || beforeIndex + before.length > offset) {
+    return null;
+  }
+
+  const afterIndex = lineText.indexOf(after, offset);
+  if (afterIndex < 0 || afterIndex < beforeIndex + before.length) {
+    return null;
+  }
+
+  return {
+    beforeFrom: line.from + beforeIndex,
+    beforeTo: line.from + beforeIndex + before.length,
+    afterFrom: line.from + afterIndex,
+    afterTo: line.from + afterIndex + after.length
+  };
+}
+
+function toggleMarkdownWrap(view, before, after) {
+  const transaction = view.state.changeByRange((range) => {
+    const wrapped = findMarkdownWrapBounds(view.state, range, before, after);
+    if (wrapped) {
+      const selectionShift = range.from >= wrapped.beforeTo ? before.length : 0;
+      return {
+        changes: [
+          { from: wrapped.beforeFrom, to: wrapped.beforeTo, insert: '' },
+          { from: wrapped.afterFrom, to: wrapped.afterTo, insert: '' }
+        ],
+        range: EditorSelection.range(
+          Math.max(wrapped.beforeFrom, range.from - selectionShift),
+          Math.max(wrapped.beforeFrom, range.to - selectionShift)
+        )
+      };
+    }
+
     const selected = view.state.sliceDoc(range.from, range.to);
     const insert = `${before}${selected}${after}`;
     const anchor = range.from + before.length;
     const head = anchor + selected.length;
-    ranges[index] = EditorSelection.range(anchor, head);
-    return { from: range.from, to: range.to, insert };
+    return {
+      changes: { from: range.from, to: range.to, insert },
+      range: EditorSelection.range(anchor, head)
+    };
   });
 
   view.dispatch({
-    changes,
-    selection: EditorSelection.create(ranges, view.state.selection.mainIndex),
+    ...transaction,
+    scrollIntoView: true
+  });
+  return true;
+}
+
+function insertMarkdownTable(view) {
+  const transaction = view.state.changeByRange((range) => {
+    const line = view.state.doc.lineAt(range.from);
+    const prefix = line.text.trim() ? '\n\n' : '';
+    const suffix = range.to >= view.state.doc.length ? '\n' : '\n\n';
+    const beforeCursor = `${prefix}| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n| `;
+    const afterCursor = ` |  |  |${suffix}`;
+    const insert = `${beforeCursor}${afterCursor}`;
+    const cursor = range.from + beforeCursor.length;
+    return {
+      changes: { from: range.from, to: range.to, insert },
+      range: EditorSelection.cursor(cursor)
+    };
+  });
+
+  view.dispatch({
+    ...transaction,
     scrollIntoView: true
   });
   return true;
@@ -1559,10 +1712,13 @@ function runMarkdownShortcut(view, action) {
     return false;
   }
   if (config.type === 'wrap') {
-    return wrapMarkdownSelection(view, config.before, config.after);
+    return toggleMarkdownWrap(view, config.before, config.after);
   }
   if (config.type === 'linePrefix') {
     return insertMarkdownLinePrefix(view, config.prefix);
+  }
+  if (config.type === 'table') {
+    return insertMarkdownTable(view);
   }
   return false;
 }
@@ -1698,6 +1854,7 @@ function App() {
   const [settingsError, setSettingsError] = useState('');
   const [showLightning, setShowLightning] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light');
+  const [sortMode, setSortMode] = useState(() => normalizeSortMode(localStorage.getItem(SORT_KEY)));
   const [tagColors, setTagColors] = useState(() => loadInitialTagColors());
   const [tagRenameDrafts, setTagRenameDrafts] = useState({});
   const [collapsedTags, setCollapsedTags] = useState({});
@@ -1801,6 +1958,15 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    const normalizedSortMode = normalizeSortMode(sortMode);
+    if (normalizedSortMode !== sortMode) {
+      setSortMode(normalizedSortMode);
+      return;
+    }
+    localStorage.setItem(SORT_KEY, normalizedSortMode);
+  }, [sortMode]);
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -1990,20 +2156,8 @@ function App() {
   }, [timeline.days, timeline.start]);
 
   const orderedTasks = useMemo(() => (
-    [...tasks].sort((a, b) => {
-      const startCompare = parseDateKey(a.start).getTime() - parseDateKey(b.start).getTime();
-      if (startCompare !== 0) {
-        return startCompare;
-      }
-
-      const endCompare = parseDateKey(a.end).getTime() - parseDateKey(b.end).getTime();
-      if (endCompare !== 0) {
-        return endCompare;
-      }
-
-      return a.id - b.id;
-    })
-  ), [tasks]);
+    [...tasks].sort((a, b) => compareTasksBySortMode(a, b, normalizeSortMode(sortMode)))
+  ), [sortMode, tasks]);
 
   const tagPaths = useMemo(() => {
     const paths = new Set();
@@ -3169,24 +3323,42 @@ function App() {
 
   const modalTask = tasks.find((task) => task.id === modalTaskId) || null;
   const modalMarkdownPath = modalTask ? getTaskMarkdownRelativePath(modalTask, settings) : '';
-  const [modalTagsInput, setModalTagsInput] = useState('');
+  const [modalTagDraft, setModalTagDraft] = useState('');
   const noteEditorRef = useRef(null);
 
   useEffect(() => {
+    setModalTagDraft('');
+  }, [modalTaskId]);
+
+  const commitTagDraft = () => {
     if (!modalTask) {
-      setModalTagsInput('');
+      setModalTagDraft('');
       return;
     }
-    setModalTagsInput(tagsToInput(modalTask.tags));
-  }, [modalTaskId, modalTask?.tags]);
+
+    const parsedTags = parseTagsInput(modalTagDraft);
+    if (parsedTags.length === 0) {
+      setModalTagDraft('');
+      return;
+    }
+
+    updateTask(modalTask.id, {
+      tags: mergeTags(modalTask.tags, parsedTags)
+    });
+    setModalTagDraft('');
+  };
+
+  const removeModalTag = (tagToRemove) => {
+    if (!modalTask) {
+      return;
+    }
+    updateTask(modalTask.id, {
+      tags: normalizeTags(modalTask.tags).filter((tag) => tag !== tagToRemove)
+    });
+  };
 
   const commitModalDrafts = () => {
-    if (modalTask) {
-      updateTask(modalTask.id, {
-        tags: parseTagsInput(modalTagsInput)
-      });
-      setModalTagsInput(tagsToInput(parseTagsInput(modalTagsInput)));
-    }
+    commitTagDraft();
     if (noteEditorRef.current && typeof noteEditorRef.current.flush === 'function') {
       noteEditorRef.current.flush();
     }
@@ -3401,7 +3573,7 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [filters, isDueOpen, isSearchOpen, isSettingsOpen, modalTaskId, settings, tasks, modalTagsInput]);
+  }, [filters, isDueOpen, isSearchOpen, isSettingsOpen, modalTaskId, settings, tasks, modalTagDraft]);
 
   const splitStyle = isCompact ? undefined : { gridTemplateColumns: `${leftWidth}px 10px minmax(0, 1fr)` };
   const vaultLabel = vaultPath ? getPathBaseName(vaultPath) : 'No Vault';
@@ -3409,6 +3581,8 @@ function App() {
     setIsMenuOpen(false);
     action();
   };
+  const currentSortField = getSortField(sortMode);
+  const currentSortDirection = getSortDirection(sortMode);
 
   return (
     <div className="desktop-root">
@@ -3614,6 +3788,28 @@ function App() {
                   ))}
                 </select>
               </label>
+              <div className="filter-field filter-field-sort">
+                <span>Sort</span>
+                <div className="sort-control">
+                  <select
+                    value={currentSortField}
+                    onChange={(event) => setSortMode(buildSortMode(event.target.value, currentSortDirection))}
+                  >
+                    {TASK_SORT_FIELDS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="sort-direction-btn"
+                    aria-label={currentSortDirection === 'Asc' ? 'Switch to descending' : 'Switch to ascending'}
+                    title={currentSortDirection === 'Asc' ? 'Ascending' : 'Descending'}
+                    onClick={() => setSortMode(buildSortMode(currentSortField, currentSortDirection === 'Asc' ? 'Desc' : 'Asc'))}
+                  >
+                    {currentSortDirection === 'Asc' ? '▲' : '▼'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -4012,18 +4208,53 @@ function App() {
 
               <label className="modal-field-tags">
                 <span>Tags</span>
-                <input
-                  type="text"
-                  placeholder="#task/hoge #work"
-                  value={modalTagsInput}
-                  list="tag-suggestions"
-                  onChange={(event) => {
-                    setModalTagsInput(event.target.value);
-                  }}
-                  onBlur={() => {
-                    commitModalDrafts();
-                  }}
-                />
+                <div className="tag-chip-editor">
+                  {normalizeTags(modalTask.tags).map((tag) => {
+                    const palette = getTagPalette(tag, tagColors);
+                    return (
+                      <span
+                        className="tag-chip"
+                        key={tag}
+                        style={{
+                          '--tag-chip-bg': palette.soft,
+                          '--tag-chip-border': palette.base,
+                          '--tag-chip-color': palette.strong
+                        }}
+                      >
+                        <span className="tag-chip-label">#{tag}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove #${tag}`}
+                          onClick={() => removeModalTag(tag)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                  <input
+                    type="text"
+                    placeholder={normalizeTags(modalTask.tags).length === 0 ? '#task/hoge' : 'Add tag'}
+                    value={modalTagDraft}
+                    list="tag-suggestions"
+                    onChange={(event) => {
+                      setModalTagDraft(event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === 'Tab' || event.key === ',' || event.key === ' ') {
+                        if (modalTagDraft.trim()) {
+                          event.preventDefault();
+                          commitTagDraft();
+                        }
+                      }
+                      if (event.key === 'Backspace' && !modalTagDraft && normalizeTags(modalTask.tags).length > 0) {
+                        const currentTags = normalizeTags(modalTask.tags);
+                        removeModalTag(currentTags[currentTags.length - 1]);
+                      }
+                    }}
+                    onBlur={commitTagDraft}
+                  />
+                </div>
               </label>
 
               <label className="modal-field-uid">
