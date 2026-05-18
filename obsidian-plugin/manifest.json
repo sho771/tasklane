@@ -1,0 +1,10 @@
+{
+  "id": "tasklane",
+  "name": "Tasklane",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Tasklane view for Markdown tasks in your Obsidian vault.",
+  "author": "",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
