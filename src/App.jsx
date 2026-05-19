@@ -41,33 +41,12 @@ const SETTINGS_KEY = 'taskkanri.desktop.settings.v1';
 const SORT_KEY = 'taskkanri.desktop.sortMode.v1';
 const IMPORT_TAG = '#task';
 const UNTAGGED_KEY = '__untagged__';
-const STATUS_OPTIONS = [
-  { value: 'todo', label: '未着手' },
-  { value: 'doing', label: '処理中' },
-  { value: 'done', label: '完了' }
+const DEFAULT_STATUS_OPTIONS = [
+  { value: 'todo', label: '未着手', color: '#b43030' },
+  { value: 'doing', label: '処理中', color: '#2c5b9a' },
+  { value: 'done', label: '完了', color: '#2f7b4c' }
 ];
-const STATUS_COLOR_MAP = {
-  todo: {
-    border: 'rgba(180, 48, 48, 0.22)',
-    background: '#ffe5e5',
-    color: '#b43030'
-  },
-  doing: {
-    border: 'rgba(44, 91, 154, 0.22)',
-    background: '#e6f1ff',
-    color: '#2c5b9a'
-  },
-  done: {
-    border: 'rgba(47, 123, 76, 0.22)',
-    background: '#e2f7eb',
-    color: '#2f7b4c'
-  }
-};
-const STATUS_FILTER_OPTIONS = [
-  { value: 'all', label: 'All' },
-  { value: 'open', label: '完了以外' },
-  ...STATUS_OPTIONS
-];
+const DEFAULT_STATUS_VALUES = DEFAULT_STATUS_OPTIONS.map((option) => option.value);
 const QUICK_FILTER_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'overdue', label: 'Overdue' },
@@ -94,7 +73,8 @@ const MARKDOWN_SHORTCUT_ACTIONS = {
   unorderedList: { label: 'Bullet list', defaultKey: 'Mod-Shift-8', type: 'linePrefix', prefix: '- ' },
   checklist: { label: 'Checklist', defaultKey: 'Mod-Shift-9', type: 'linePrefix', prefix: '- [ ] ' },
   quote: { label: 'Quote', defaultKey: 'Mod-Shift-.', type: 'linePrefix', prefix: '> ' },
-  table: { label: 'Table', defaultKey: 'Mod-Shift-t', type: 'table' }
+  table: { label: 'Table', defaultKey: 'Mod-Shift-t', type: 'table' },
+  currentDate: { label: 'Current date', defaultKey: 'Mod-Shift-d', type: 'currentDate' }
 };
 const DEFAULT_MARKDOWN_SHORTCUTS = Object.fromEntries(
   Object.entries(MARKDOWN_SHORTCUT_ACTIONS).map(([action, config]) => [action, config.defaultKey])
@@ -103,13 +83,15 @@ const DEFAULT_SETTINGS = {
   indexDigits: 4,
   nextTaskIndex: 1,
   fileNamePattern: '{index}_{name}',
-  markdownShortcuts: DEFAULT_MARKDOWN_SHORTCUTS
+  markdownShortcuts: DEFAULT_MARKDOWN_SHORTCUTS,
+  statusOptions: DEFAULT_STATUS_OPTIONS
 };
 const DEFAULT_SETTINGS_SECTIONS = {
   general: true,
   shortcuts: true,
   shortcutJson: false,
   tags: false,
+  statuses: false,
   vaultLog: true
 };
 
@@ -621,12 +603,94 @@ function normalizeFileNamePattern(rawPattern) {
   return pattern || DEFAULT_SETTINGS.fileNamePattern;
 }
 
+function createStatusValue(label, fallback = 'status') {
+  const value = String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return value || fallback;
+}
+
+function createUniqueStatusValue(label, existingOptions = []) {
+  const existing = new Set(existingOptions.map((option) => option.value));
+  const base = createStatusValue(label || 'custom', 'custom');
+  let value = base;
+  let suffix = 2;
+  while (existing.has(value)) {
+    value = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return value;
+}
+
+function statusColorPalette(rawColor) {
+  const color = normalizeHexColor(rawColor) || DEFAULT_STATUS_OPTIONS[0].color;
+  return {
+    border: hexToRgba(color, 0.24),
+    background: mixHex(color, '#ffffff', 0.86),
+    color
+  };
+}
+
+function normalizeStatusOptions(rawOptions = DEFAULT_STATUS_OPTIONS) {
+  const rawList = Array.isArray(rawOptions) ? rawOptions : DEFAULT_STATUS_OPTIONS;
+  const rawByValue = new Map(rawList
+    .filter((option) => option && typeof option === 'object')
+    .map((option) => [String(option.value || '').trim().toLowerCase(), option]));
+  const used = new Set();
+  const normalized = DEFAULT_STATUS_OPTIONS.map((defaultOption) => {
+    const rawOption = rawByValue.get(defaultOption.value) || {};
+    used.add(defaultOption.value);
+    return {
+      value: defaultOption.value,
+      label: String(rawOption.label || defaultOption.label).trim() || defaultOption.label,
+      color: normalizeHexColor(rawOption.color) || defaultOption.color
+    };
+  });
+
+  rawList.forEach((option) => {
+    if (!option || typeof option !== 'object') {
+      return;
+    }
+    const value = createStatusValue(option.value || option.label);
+    if (!value || used.has(value)) {
+      return;
+    }
+    used.add(value);
+    normalized.push({
+      value,
+      label: String(option.label || value).trim() || value,
+      color: normalizeHexColor(option.color) || '#7c5cff'
+    });
+  });
+
+  return normalized;
+}
+
+function buildStatusColorMap(statusOptions = DEFAULT_STATUS_OPTIONS) {
+  return Object.fromEntries(normalizeStatusOptions(statusOptions).map((option) => [
+    option.value,
+    statusColorPalette(option.color)
+  ]));
+}
+
+function buildStatusOrderMap(statusOptions = DEFAULT_STATUS_OPTIONS) {
+  return Object.fromEntries(normalizeStatusOptions(statusOptions).map((option, index) => [
+    option.value,
+    index
+  ]));
+}
+
 function normalizeSettings(rawSettings = {}) {
   return {
     indexDigits: clamp(Math.round(Number(rawSettings.indexDigits) || DEFAULT_SETTINGS.indexDigits), 1, 8),
     nextTaskIndex: normalizeTaskIndex(rawSettings.nextTaskIndex, DEFAULT_SETTINGS.nextTaskIndex),
     fileNamePattern: normalizeFileNamePattern(rawSettings.fileNamePattern),
-    markdownShortcuts: normalizeMarkdownShortcuts(rawSettings.markdownShortcuts)
+    markdownShortcuts: normalizeMarkdownShortcuts(rawSettings.markdownShortcuts),
+    statusOptions: normalizeStatusOptions(rawSettings.statusOptions)
   };
 }
 
@@ -650,16 +714,16 @@ function isLegacySampleTask(rawTask) {
   );
 }
 
-function normalizeTask(rawTask, fallbackId) {
+function normalizeTask(rawTask, fallbackId, statusOptions = DEFAULT_STATUS_OPTIONS) {
   const id = Number(rawTask.id) || fallbackId;
   const index = normalizeTaskIndex(rawTask.index ?? rawTask.taskIndex ?? rawTask.no, id);
   const start = rawTask.start && /^\d{4}-\d{2}-\d{2}$/.test(rawTask.start) ? rawTask.start : toDateKey(new Date());
   const endCandidate = rawTask.end && /^\d{4}-\d{2}-\d{2}$/.test(rawTask.end) ? rawTask.end : start;
   const safeEnd = parseDateKey(endCandidate) < parseDateKey(start) ? start : endCandidate;
   const progress = clamp(Number(rawTask.progress) || 0, 0, 100);
-  const normalizedStatus = normalizeStatus(rawTask.status, progress);
+  const normalizedStatus = normalizeStatus(rawTask.status, progress, statusOptions);
   const safeProgress = normalizedStatus === 'done' ? 100 : progress;
-  const status = normalizeStatus(rawTask.status, safeProgress);
+  const status = normalizeStatus(rawTask.status, safeProgress, statusOptions);
   const parentId = rawTask.parentId == null ? null : Number(rawTask.parentId);
   const dependsOn = Array.isArray(rawTask.dependsOn)
     ? [...new Set(rawTask.dependsOn.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0 && value !== id))]
@@ -689,6 +753,7 @@ function normalizeTask(rawTask, fallbackId) {
 function loadInitialTasks() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+    const initialSettings = loadInitialSettings();
     if (!raw) {
       return [];
     }
@@ -703,7 +768,7 @@ function loadInitialTasks() {
       .map((task, index) => normalizeTask({
         ...task,
         index: task.index ?? task.taskIndex ?? task.no ?? index + 1
-      }, index + 1));
+      }, index + 1, initialSettings.statusOptions));
   } catch {
     return [];
   }
@@ -922,6 +987,7 @@ function getTaskFolderPath(task) {
 
 function buildTaskFileBaseName(task, settings = DEFAULT_SETTINGS) {
   const pattern = normalizeFileNamePattern(settings.fileNamePattern);
+  const statusOptions = normalizeStatusOptions(settings.statusOptions);
   const paddedIndex = formatTaskIndexForFile(task, settings.indexDigits);
   const rawBase = pattern
     .replace(/\{index\}/g, paddedIndex)
@@ -929,7 +995,7 @@ function buildTaskFileBaseName(task, settings = DEFAULT_SETTINGS) {
     .replace(/\{id\}/g, String(task.id))
     .replace(/\{name\}/g, String(task.name || `Task ${paddedIndex}`))
     .replace(/\{uid\}/g, String(task.uid || ''))
-    .replace(/\{status\}/g, normalizeStatus(task.status, task.progress));
+    .replace(/\{status\}/g, normalizeStatus(task.status, task.progress, statusOptions));
   return sanitizePathSegment(rawBase, `${paddedIndex}_${task.name || `Task ${paddedIndex}`}`);
 }
 
@@ -942,7 +1008,8 @@ function quoteMetaValue(value) {
   return JSON.stringify(String(value ?? ''));
 }
 
-function buildTaskMarkdown(task) {
+function buildTaskMarkdown(task, settings = DEFAULT_SETTINGS) {
+  const statusOptions = normalizeStatusOptions(settings.statusOptions);
   const depends = Array.isArray(task.dependsOn)
     ? task.dependsOn.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
     : [];
@@ -956,7 +1023,7 @@ function buildTaskMarkdown(task) {
     `index: ${getTaskIndex(task)}`,
     `uid: ${quoteMetaValue(task.uid || '')}`,
     `name: ${quoteMetaValue(task.name)}`,
-    `status: ${quoteMetaValue(normalizeStatus(task.status, task.progress))}`,
+    `status: ${quoteMetaValue(normalizeStatus(task.status, task.progress, statusOptions))}`,
     `start: ${task.start}`,
     `end: ${task.end}`,
     `progress: ${clamp(Number(task.progress) || 0, 0, 100)}`,
@@ -986,7 +1053,7 @@ function buildTaskMarkdownFiles(tasks, settings = DEFAULT_SETTINGS) {
     usedNames.add(fileName);
     return {
       relativePath: fileName,
-      content: buildTaskMarkdown(task)
+      content: buildTaskMarkdown(task, settings)
     };
   });
 }
@@ -1077,9 +1144,10 @@ function normalizeUid(rawUid) {
   return /^\d{14}$/.test(value) ? value : '';
 }
 
-function normalizeStatus(rawStatus, progress = 0) {
+function normalizeStatus(rawStatus, progress = 0, statusOptions = DEFAULT_STATUS_OPTIONS) {
   const value = String(rawStatus || '').trim().toLowerCase();
-  if (value === 'todo' || value === 'doing' || value === 'done') {
+  const statusValues = new Set(normalizeStatusOptions(statusOptions).map((option) => option.value));
+  if (statusValues.has(value)) {
     return value;
   }
   if (value === '未着手') {
@@ -1090,6 +1158,10 @@ function normalizeStatus(rawStatus, progress = 0) {
   }
   if (value === '完了') {
     return 'done';
+  }
+  const customValue = createStatusValue(value, '');
+  if (customValue && statusValues.has(customValue)) {
+    return customValue;
   }
   if (Number(progress) >= 100) {
     return 'done';
@@ -1113,12 +1185,19 @@ function statusProgressValue(status, fallbackProgress = 0) {
   return clamp(Number(fallbackProgress) || 0, 0, 100);
 }
 
-function StatusDropdown({ value, onChange, className = '' }) {
+function StatusDropdown({
+  value,
+  onChange,
+  className = '',
+  statusOptions = DEFAULT_STATUS_OPTIONS,
+  statusColorMap = buildStatusColorMap(statusOptions)
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef(null);
-  const currentStatus = normalizeStatus(value);
-  const currentOption = STATUS_OPTIONS.find((option) => option.value === currentStatus) || STATUS_OPTIONS[0];
-  const currentColors = STATUS_COLOR_MAP[currentStatus] || STATUS_COLOR_MAP.todo;
+  const options = normalizeStatusOptions(statusOptions);
+  const currentStatus = normalizeStatus(value, 0, options);
+  const currentOption = options.find((option) => option.value === currentStatus) || options[0];
+  const currentColors = statusColorMap[currentStatus] || statusColorPalette(currentOption.color);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1149,7 +1228,7 @@ function StatusDropdown({ value, onChange, className = '' }) {
     <div className={`status-dropdown ${isOpen ? 'is-open' : ''} ${className}`} ref={rootRef}>
       <button
         type="button"
-        className={`status-chip status-${currentStatus}`}
+        className="status-chip"
         style={{
           borderColor: currentColors.border,
           backgroundColor: currentColors.background,
@@ -1168,30 +1247,33 @@ function StatusDropdown({ value, onChange, className = '' }) {
       </button>
       {isOpen && (
         <div className="status-menu" role="listbox" aria-label="Status">
-          {STATUS_OPTIONS.map((option) => (
-            <button
-              type="button"
-              key={option.value}
-              role="option"
-              aria-selected={option.value === currentStatus}
-              className={`status-option status-${option.value} ${option.value === currentStatus ? 'selected' : ''}`}
-              style={{
-                borderColor: STATUS_COLOR_MAP[option.value].border,
-                backgroundColor: STATUS_COLOR_MAP[option.value].background,
-                color: STATUS_COLOR_MAP[option.value].color,
-                '--status-border': STATUS_COLOR_MAP[option.value].border,
-                '--status-bg': STATUS_COLOR_MAP[option.value].background,
-                '--status-fg': STATUS_COLOR_MAP[option.value].color
-              }}
-              onClick={() => {
-                onChange(option.value);
-                setIsOpen(false);
-              }}
-            >
-              <span className="status-chip-dot" style={{ backgroundColor: STATUS_COLOR_MAP[option.value].color }} />
-              <span style={{ color: STATUS_COLOR_MAP[option.value].color }}>{option.label}</span>
-            </button>
-          ))}
+          {options.map((option) => {
+            const optionColors = statusColorMap[option.value] || statusColorPalette(option.color);
+            return (
+              <button
+                type="button"
+                key={option.value}
+                role="option"
+                aria-selected={option.value === currentStatus}
+                className={`status-option ${option.value === currentStatus ? 'selected' : ''}`}
+                style={{
+                  borderColor: optionColors.border,
+                  backgroundColor: optionColors.background,
+                  color: optionColors.color,
+                  '--status-border': optionColors.border,
+                  '--status-bg': optionColors.background,
+                  '--status-fg': optionColors.color
+                }}
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+              >
+                <span className="status-chip-dot" style={{ backgroundColor: optionColors.color }} />
+                <span style={{ color: optionColors.color }}>{option.label}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1315,11 +1397,11 @@ function isTagPathMatch(targetPath, filterPath) {
   return targetPath === filterPath || targetPath.startsWith(`${filterPath}/`);
 }
 
-function isTaskInQuickFilter(task, quickFilter, todayKey) {
+function isTaskInQuickFilter(task, quickFilter, todayKey, statusOptions = DEFAULT_STATUS_OPTIONS) {
   if (!quickFilter || quickFilter === 'all') {
     return true;
   }
-  const status = normalizeStatus(task.status, task.progress);
+  const status = normalizeStatus(task.status, task.progress, statusOptions);
   const taskStart = parseDateKey(task.start).getTime();
   const taskEnd = parseDateKey(task.end).getTime();
   const todayStart = parseDateKey(todayKey).getTime();
@@ -1372,7 +1454,7 @@ function buildSortMode(field, direction) {
   return normalizeSortMode(`${safeField}${safeDirection}`);
 }
 
-function compareTasksBySortMode(a, b, sortMode = DEFAULT_SORT_MODE) {
+function compareTasksBySortMode(a, b, sortMode = DEFAULT_SORT_MODE, statusOptions = DEFAULT_STATUS_OPTIONS) {
   const compareNumber = (left, right) => left - right;
   const compareText = (left, right) => String(left || '').localeCompare(String(right || ''), 'ja', { numeric: true });
   const byId = compareNumber(a.id, b.id);
@@ -1381,10 +1463,10 @@ function compareTasksBySortMode(a, b, sortMode = DEFAULT_SORT_MODE) {
   const indexCompare = compareNumber(getTaskIndex(a), getTaskIndex(b));
   const nameCompare = compareText(a.name, b.name);
   const tagCompare = compareTagPath(getPrimaryTagPath(a), getPrimaryTagPath(b));
-  const statusOrder = { todo: 0, doing: 1, done: 2 };
+  const statusOrder = buildStatusOrderMap(statusOptions);
   const statusCompare = compareNumber(
-    statusOrder[normalizeStatus(a.status, a.progress)] ?? 9,
-    statusOrder[normalizeStatus(b.status, b.progress)] ?? 9
+    statusOrder[normalizeStatus(a.status, a.progress, statusOptions)] ?? 999,
+    statusOrder[normalizeStatus(b.status, b.progress, statusOptions)] ?? 999
   );
 
   if (sortMode === 'dueAsc') {
@@ -1489,7 +1571,7 @@ function parseChecklistTasksFromMarkdown(content, relativePath) {
   return tasks;
 }
 
-function parseTaskFromMarkdownNote(content, relativePath) {
+function parseTaskFromMarkdownNote(content, relativePath, statusOptions = DEFAULT_STATUS_OPTIONS) {
   const { frontmatter, body } = splitFrontmatter(content);
   const meta = parseFrontmatterBlock(frontmatter);
   const fallbackName = String(relativePath || 'Imported Note').split('/').pop().replace(/\.md$/i, '') || 'Imported Note';
@@ -1512,7 +1594,7 @@ function parseTaskFromMarkdownNote(content, relativePath) {
   const start = typeof meta.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.start) ? meta.start : toDateKey(new Date());
   const end = typeof meta.end === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.end) ? meta.end : toDateKey(addDays(start, 2));
   const progress = clamp(Number(meta.progress) || 0, 0, 100);
-  const status = normalizeStatus(meta.status, progress);
+  const status = normalizeStatus(meta.status, progress, statusOptions);
   const uid = normalizeUid(meta.uid);
   const parentRaw = Number(meta.parentId);
   const parentId = Number.isInteger(parentRaw) && parentRaw > 0 && parentRaw !== id ? parentRaw : null;
@@ -1536,12 +1618,12 @@ function parseTaskFromMarkdownNote(content, relativePath) {
   };
 }
 
-function parseTasksFromMarkdown(content, relativePath) {
+function parseTasksFromMarkdown(content, relativePath, statusOptions = DEFAULT_STATUS_OPTIONS) {
   const { frontmatter } = splitFrontmatter(content);
   const meta = parseFrontmatterBlock(frontmatter);
   const isTaskkanriNote = Boolean(meta.taskkanri) || meta.id != null || meta.start != null || meta.end != null;
   if (isTaskkanriNote) {
-    return [parseTaskFromMarkdownNote(content, relativePath)];
+    return [parseTaskFromMarkdownNote(content, relativePath, statusOptions)];
   }
 
   const checklistTasks = parseChecklistTasksFromMarkdown(content, relativePath);
@@ -1695,6 +1777,20 @@ function insertMarkdownTable(view) {
   return true;
 }
 
+function insertCurrentDate(view) {
+  const today = toDateKey(new Date());
+  const transaction = view.state.changeByRange((range) => ({
+    changes: { from: range.from, to: range.to, insert: today },
+    range: EditorSelection.cursor(range.from + today.length)
+  }));
+
+  view.dispatch({
+    ...transaction,
+    scrollIntoView: true
+  });
+  return true;
+}
+
 function insertMarkdownLinePrefix(view, prefix) {
   const range = view.state.selection.main;
   const line = view.state.doc.lineAt(range.from);
@@ -1719,6 +1815,9 @@ function runMarkdownShortcut(view, action) {
   }
   if (config.type === 'table') {
     return insertMarkdownTable(view);
+  }
+  if (config.type === 'currentDate') {
+    return insertCurrentDate(view);
   }
   return false;
 }
@@ -2155,9 +2254,17 @@ function App() {
     return segments;
   }, [timeline.days, timeline.start]);
 
+  const statusOptions = useMemo(() => normalizeStatusOptions(settings.statusOptions), [settings.statusOptions]);
+  const statusColorMap = useMemo(() => buildStatusColorMap(statusOptions), [statusOptions]);
+  const statusFilterOptions = useMemo(() => ([
+    { value: 'all', label: 'All' },
+    { value: 'open', label: '完了以外' },
+    ...statusOptions
+  ]), [statusOptions]);
+
   const orderedTasks = useMemo(() => (
-    [...tasks].sort((a, b) => compareTasksBySortMode(a, b, normalizeSortMode(sortMode)))
-  ), [sortMode, tasks]);
+    [...tasks].sort((a, b) => compareTasksBySortMode(a, b, normalizeSortMode(sortMode), statusOptions))
+  ), [sortMode, statusOptions, tasks]);
 
   const tagPaths = useMemo(() => {
     const paths = new Set();
@@ -2212,13 +2319,18 @@ function App() {
         next.tag = 'all';
         changed = true;
       }
+      const statusValues = new Set(['all', 'open', ...statusOptions.map((option) => option.value)]);
+      if (!statusValues.has(next.status)) {
+        next.status = 'all';
+        changed = true;
+      }
       return changed ? next : prev;
     });
-  }, [tagPaths]);
+  }, [statusOptions, tagPaths]);
 
   const filteredTasks = useMemo(() => (
     orderedTasks.filter((task) => {
-      const status = normalizeStatus(task.status, task.progress);
+      const status = normalizeStatus(task.status, task.progress, statusOptions);
       if (filters.status === 'open' && status === 'done') {
         return false;
       }
@@ -2232,7 +2344,7 @@ function App() {
       if (filters.dueBy && task.end > filters.dueBy) {
         return false;
       }
-      if (!isTaskInQuickFilter(task, filters.quick, today)) {
+      if (!isTaskInQuickFilter(task, filters.quick, today, statusOptions)) {
         return false;
       }
       if (!taskMatchesSearch(task, filters.query)) {
@@ -2240,7 +2352,7 @@ function App() {
       }
       return true;
     })
-  ), [filters, orderedTasks, today]);
+  ), [filters, orderedTasks, statusOptions, today]);
 
   const visibleRows = useMemo(() => {
     const nodeMap = new Map();
@@ -2283,12 +2395,12 @@ function App() {
     });
 
     const statusCountsFor = (tasksForPath) => tasksForPath.reduce((counts, task) => {
-      const status = normalizeStatus(task.status, task.progress);
+      const status = normalizeStatus(task.status, task.progress, statusOptions);
       return {
         ...counts,
-        [status]: counts[status] + 1
+        [status]: (counts[status] || 0) + 1
       };
-    }, { todo: 0, doing: 0, done: 0 });
+    }, Object.fromEntries(statusOptions.map((option) => [option.value, 0])));
 
     const collectTasksForPath = (path) => {
       const node = nodeMap.get(path);
@@ -2324,7 +2436,7 @@ function App() {
       const progress = weighted.duration > 0
         ? Math.round(weighted.progress / weighted.duration)
         : 0;
-      const statuses = tasksForPath.map((task) => normalizeStatus(task.status, task.progress));
+      const statuses = tasksForPath.map((task) => normalizeStatus(task.status, task.progress, statusOptions));
       const status = statuses.every((item) => item === 'done')
         ? 'done'
         : (statuses.some((item) => item === 'doing') || progress > 0 ? 'doing' : 'todo');
@@ -2380,7 +2492,7 @@ function App() {
       .forEach((path) => walk(path));
 
     return rows;
-  }, [collapsedTags, filteredTasks, tagColors]);
+  }, [collapsedTags, filteredTasks, statusOptions, tagColors]);
 
   const rowMetrics = useMemo(() => {
     const metrics = [];
@@ -2514,7 +2626,7 @@ function App() {
       const safeStart = next.start;
       const safeEnd = parseDateKey(next.end) < parseDateKey(next.start) ? next.start : next.end;
       const safeIndex = normalizeTaskIndex(next.index, task.index || task.id);
-      const requestedStatus = normalizeStatus(next.status, next.progress);
+      const requestedStatus = normalizeStatus(next.status, next.progress, statusOptions);
       const statusChanged = Boolean(patch) && Object.prototype.hasOwnProperty.call(patch, 'status');
       const nextProgress = statusChanged
         ? statusProgressValue(requestedStatus, next.progress)
@@ -2527,7 +2639,7 @@ function App() {
         start: safeStart,
         end: safeEnd,
         progress: progressWithStatus,
-        status: normalizeStatus(next.status, progressWithStatus)
+        status: normalizeStatus(next.status, progressWithStatus, statusOptions)
       };
     }));
   };
@@ -2563,7 +2675,7 @@ function App() {
       ...taskBase,
       index: taskBase.index ?? getConfiguredNextTaskIndex(),
       id
-    }, id);
+    }, id, statusOptions);
 
     setTasksWithHistory((prev) => {
       const next = [...prev];
@@ -2579,7 +2691,8 @@ function App() {
     const uid = createUid();
     const start = toDateKey(new Date());
     const end = toDateKey(addDays(start, 2));
-    const initialStatus = (filters.status === 'done' || filters.status === 'doing' || filters.status === 'todo')
+    const statusValues = new Set(statusOptions.map((option) => option.value));
+    const initialStatus = statusValues.has(filters.status)
       ? filters.status
       : 'todo';
     const initialTags = filters.tag === 'all'
@@ -2783,7 +2896,7 @@ function App() {
       const normalized = normalizeTask({
         ...parsed,
         id: resolvedId
-      }, resolvedId);
+      }, resolvedId, statusOptions);
       next.push(normalized);
       usedIds.add(normalized.id);
       maxId = Math.max(maxId, normalized.id);
@@ -2808,7 +2921,7 @@ function App() {
       if (!file || typeof file.relativePath !== 'string' || typeof file.content !== 'string') {
         return [];
       }
-      return parseTasksFromMarkdown(file.content, file.relativePath);
+      return parseTasksFromMarkdown(file.content, file.relativePath, statusOptions);
     });
 
     if (parsedRecords.length === 0) {
@@ -2910,7 +3023,7 @@ function App() {
             ...current,
             ...parsed,
             id: preservedId
-          }, preservedId);
+          }, preservedId, statusOptions);
           next[index] = merged;
           idToIndex.set(preservedId, index);
           updatedCount += 1;
@@ -2923,7 +3036,7 @@ function App() {
             ...next[index],
             ...parsed,
             id: incomingId
-          }, incomingId);
+          }, incomingId, statusOptions);
           next[index] = merged;
           if (merged.sourcePath) {
             pathToIndex.set(merged.sourcePath, index);
@@ -2939,7 +3052,7 @@ function App() {
         const normalized = normalizeTask({
           ...parsed,
           id: resolvedId
-        }, resolvedId);
+        }, resolvedId, statusOptions);
         next.push(normalized);
         idToIndex.set(resolvedId, next.length - 1);
         if (normalized.sourcePath) {
@@ -2974,7 +3087,7 @@ function App() {
         if (!file || typeof file.relativePath !== 'string' || typeof file.content !== 'string') {
           return [];
         }
-        return parseTasksFromMarkdown(file.content, file.relativePath);
+        return parseTasksFromMarkdown(file.content, file.relativePath, statusOptions);
       });
 
       if (parsedRecords.length === 0) {
@@ -2984,7 +3097,7 @@ function App() {
           if (!file || typeof file.relativePath !== 'string' || typeof file.content !== 'string') {
             return [];
           }
-          return parseTasksFromMarkdown(file.content, file.relativePath);
+          return parseTasksFromMarkdown(file.content, file.relativePath, statusOptions);
         });
       }
 
@@ -3016,7 +3129,7 @@ function App() {
       }
 
       const relativePath = selected.relativePath || getPathBaseName(selected.path) || 'Selected.md';
-      const parsedRecords = parseTasksFromMarkdown(selected.content, relativePath);
+      const parsedRecords = parseTasksFromMarkdown(selected.content, relativePath, statusOptions);
       if (parsedRecords.length === 0) {
         showVaultStatus(`No ${IMPORT_TAG} task lines found in selected file.`);
         return;
@@ -3374,6 +3487,7 @@ function App() {
       indexDigits: settings.indexDigits,
       nextTaskIndex: settings.nextTaskIndex,
       fileNamePattern: settings.fileNamePattern,
+      statusOptions: settings.statusOptions,
       shortcutsJson: JSON.stringify(settings.markdownShortcuts, null, 2)
     });
     setSettingsError('');
@@ -3392,6 +3506,7 @@ function App() {
         indexDigits: settingsDraft.indexDigits,
         nextTaskIndex: settingsDraft.nextTaskIndex,
         fileNamePattern: settingsDraft.fileNamePattern,
+        statusOptions: settingsDraft.statusOptions,
         markdownShortcuts
       }));
       closeSettings();
@@ -3431,6 +3546,41 @@ function App() {
       };
     });
     setSettingsError('');
+  };
+
+  const updateStatusDraft = (statusValue, patch) => {
+    setSettingsDraft((prev) => ({
+      ...prev,
+      statusOptions: normalizeStatusOptions(prev.statusOptions).map((option) => (
+        option.value === statusValue
+          ? { ...option, ...patch, value: option.value }
+          : option
+      ))
+    }));
+  };
+
+  const addStatusDraft = () => {
+    setSettingsDraft((prev) => {
+      const current = normalizeStatusOptions(prev.statusOptions);
+      const value = createUniqueStatusValue('custom', current);
+      return {
+        ...prev,
+        statusOptions: [
+          ...current,
+          { value, label: 'New Status', color: '#7c5cff' }
+        ]
+      };
+    });
+  };
+
+  const removeStatusDraft = (statusValue) => {
+    if (DEFAULT_STATUS_VALUES.includes(statusValue)) {
+      return;
+    }
+    setSettingsDraft((prev) => ({
+      ...prev,
+      statusOptions: normalizeStatusOptions(prev.statusOptions).filter((option) => option.value !== statusValue)
+    }));
   };
 
   const toggleSettingsSection = (sectionKey) => {
@@ -3745,9 +3895,6 @@ function App() {
                       <button type="button" className="menu-action-btn" onClick={runMenuAction(openSettings)}>
                         Settings
                       </button>
-                      <button type="button" className="menu-action-btn danger" onClick={runMenuAction(handleClearAllTasks)} disabled={isVaultBusy}>
-                        Clear Tasks
-                      </button>
                     </div>
                   )}
                 </div>
@@ -3760,7 +3907,7 @@ function App() {
                   value={filters.status}
                   onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
                 >
-                  {STATUS_FILTER_OPTIONS.map((option) => (
+                  {statusFilterOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
@@ -3861,17 +4008,31 @@ function App() {
                         aria-label={`${row.group} color`}
                       />
                       <strong className="group-name">{row.label}</strong>
-                      <span className="group-counts" aria-label={`未着手 ${row.statusCounts.todo}、処理中 ${row.statusCounts.doing}、完了 ${row.statusCounts.done}`}>
-                        <span className="group-count count-todo" title="未着手">{row.statusCounts.todo}</span>
-                        <span className="group-count count-doing" title="処理中">{row.statusCounts.doing}</span>
-                        <span className="group-count count-done" title="完了">{row.statusCounts.done}</span>
+                      <span className="group-counts" aria-label={statusOptions.map((option) => `${option.label} ${row.statusCounts[option.value] || 0}`).join('、')}>
+                        {statusOptions.map((option) => {
+                          const colors = statusColorMap[option.value] || statusColorPalette(option.color);
+                          return (
+                            <span
+                              className="group-count"
+                              key={option.value}
+                              title={option.label}
+                              style={{
+                                color: colors.color,
+                                borderColor: colors.border,
+                                backgroundColor: colors.background
+                              }}
+                            >
+                              {row.statusCounts[option.value] || 0}
+                            </span>
+                          );
+                        })}
                       </span>
                     </div>
                   );
                 }
 
                 const task = row.task;
-                const taskStatus = normalizeStatus(task.status, task.progress);
+                const taskStatus = normalizeStatus(task.status, task.progress, statusOptions);
                 const isOverdue = parseDateKey(task.end) < parseDateKey(today) && taskStatus !== 'done';
 
                 return (
@@ -3897,6 +4058,8 @@ function App() {
                     <StatusDropdown
                       value={taskStatus}
                       onChange={(status) => updateTask(task.id, { status })}
+                      statusOptions={statusOptions}
+                      statusColorMap={statusColorMap}
                     />
                   </div>
                 );
@@ -4025,7 +4188,8 @@ function App() {
                   return null;
                 }
                 const task = row.task;
-                const taskStatus = normalizeStatus(task.status, task.progress);
+                const taskStatus = normalizeStatus(task.status, task.progress, statusOptions);
+                const taskStatusColors = statusColorMap[taskStatus] || statusColorPalette('#5a7075');
                 const position = geometry.get(task.id);
                 if (!position) {
                   return null;
@@ -4043,7 +4207,7 @@ function App() {
                         left: `${position.startX}px`,
                         top: `${position.top}px`,
                         width: `${position.width}px`,
-                        '--chart-status-color': STATUS_COLOR_MAP[taskStatus].color,
+                        '--chart-status-color': taskStatusColors.color,
                         '--group-soft': row.palette.soft,
                         '--group-base': row.palette.base,
                         '--group-strong': row.palette.strong,
@@ -4289,8 +4453,10 @@ function App() {
                 <span>Status</span>
                 <StatusDropdown
                   className="modal-status-select"
-                  value={normalizeStatus(modalTask.status, modalTask.progress)}
+                  value={normalizeStatus(modalTask.status, modalTask.progress, statusOptions)}
                   onChange={(status) => updateTask(modalTask.id, { status })}
+                  statusOptions={statusOptions}
+                  statusColorMap={statusColorMap}
                 />
               </label>
 
@@ -4376,6 +4542,40 @@ function App() {
                     onChange={(event) => setSettingsDraft((prev) => ({ ...prev, fileNamePattern: event.target.value }))}
                   />
                 </label>
+              </div>
+            ))}
+
+            {renderSettingsSection('statuses', 'Statuses', (
+              <div className="status-manager-list">
+                {normalizeStatusOptions(settingsDraft.statusOptions).map((option) => (
+                  <div className="status-manager-row" key={option.value}>
+                    <input
+                      type="color"
+                      value={option.color}
+                      aria-label={`${option.label} color`}
+                      onChange={(event) => updateStatusDraft(option.value, { color: event.target.value })}
+                    />
+                    <input
+                      type="text"
+                      value={option.label}
+                      onChange={(event) => updateStatusDraft(option.value, { label: event.target.value })}
+                    />
+                    <code>{option.value}</code>
+                    <button
+                      type="button"
+                      className="menu-action-btn danger"
+                      disabled={DEFAULT_STATUS_VALUES.includes(option.value)}
+                      onClick={() => removeStatusDraft(option.value)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <div className="settings-actions">
+                  <button type="button" className="menu-action-btn" onClick={addStatusDraft}>
+                    Add Status
+                  </button>
+                </div>
               </div>
             ))}
 
@@ -4485,6 +4685,21 @@ function App() {
                 <div className="settings-empty">Full log: .log/vault_log.log</div>
               </div>
             ))}
+
+            <section className="settings-danger-zone">
+              <div>
+                <h3>Danger Zone</h3>
+                <p>Clear Tasks deletes all tasks from this app. Vault auto-sync may also reflect the empty task list.</p>
+              </div>
+              <button
+                type="button"
+                className="menu-action-btn danger"
+                onClick={handleClearAllTasks}
+                disabled={isVaultBusy}
+              >
+                Clear Tasks
+              </button>
+            </section>
           </section>
         </div>
       )}
