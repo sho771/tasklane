@@ -80,14 +80,23 @@
   grid-template-columns: minmax(150px, 1fr) 84px 68px;
   gap: 8px;
   align-items: center;
+  justify-items: start;
+  text-align: left;
   min-width: 0;
+}
+
+.tasklane-plugin-list-header > *,
+.tasklane-plugin-task > *,
+.tasklane-plugin-group-row > * {
+  justify-self: stretch;
+  text-align: left;
 }
 
 .tasklane-plugin-list-header {
   position: sticky;
   top: 0;
   z-index: 3;
-  height: 28px;
+  height: 44px;
   border-bottom: 1px solid var(--background-modifier-border);
   padding: 0 10px;
   color: var(--text-muted);
@@ -124,6 +133,20 @@
   white-space: nowrap;
 }
 
+.tasklane-plugin-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border: 1px solid var(--tasklane-tag-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  color: var(--tasklane-tag-text);
+  background: var(--tasklane-tag-bg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tasklane-plugin-group-count {
   justify-self: start;
   border-radius: 999px;
@@ -139,8 +162,9 @@
 
 .tasklane-plugin-open {
   min-width: 0;
+  width: 100%;
   border: 0;
-  padding: 0;
+  padding: 0 0 0 6px;
   color: var(--text-normal);
   background: transparent;
   text-align: left;
@@ -153,6 +177,8 @@
 
 .tasklane-plugin-task-name,
 .tasklane-plugin-task-meta {
+  display: block;
+  width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -174,6 +200,7 @@
   min-width: calc(var(--tasklane-days) * var(--tasklane-col-width));
 }
 
+.tasklane-plugin-chart-month-header,
 .tasklane-plugin-chart-header,
 .tasklane-plugin-chart-row,
 .tasklane-plugin-chart-group-row {
@@ -181,11 +208,29 @@
   grid-template-columns: repeat(var(--tasklane-days), var(--tasklane-col-width));
 }
 
-.tasklane-plugin-chart-header {
+.tasklane-plugin-chart-month-header {
   position: sticky;
   top: 0;
+  z-index: 4;
+  height: 22px;
+  background: var(--background-secondary);
+}
+
+.tasklane-plugin-chart-month {
+  border-right: 1px solid var(--background-modifier-border);
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 3px 6px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.tasklane-plugin-chart-header {
+  position: sticky;
+  top: 22px;
   z-index: 3;
-  height: 28px;
+  height: 22px;
   background: var(--background-secondary);
 }
 
@@ -196,7 +241,7 @@
 
 .tasklane-plugin-chart-day {
   border-bottom: 1px solid var(--background-modifier-border);
-  padding-top: 6px;
+  padding-top: 3px;
   color: var(--text-muted);
   font-size: 10px;
   text-align: center;

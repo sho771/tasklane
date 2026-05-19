@@ -360,20 +360,20 @@ class TasklaneView extends ItemView {
       if (item.type === 'group') {
         const groupRow = rowContainer.createDiv({ cls: 'tasklane-plugin-group-row' });
         groupRow.style.setProperty('--tasklane-indent', `${item.level * 16}px`);
-        groupRow.createSpan({
-          cls: 'tasklane-plugin-group-name',
-          text: `#${item.tag}`
-        });
+        const palette = tagPalette(item.tag);
+        const groupName = groupRow.createSpan({ cls: 'tasklane-plugin-group-name' });
+        groupName.style.setProperty('--tasklane-tag-bg', palette.bg);
+        groupName.style.setProperty('--tasklane-tag-border', palette.border);
+        groupName.style.setProperty('--tasklane-tag-text', palette.text);
+        groupName.createSpan({ cls: 'tasklane-plugin-tag-chip', text: `#${item.tag}` });
         groupRow.createSpan({ cls: 'tasklane-plugin-group-count', text: `${item.count}` });
         continue;
       }
 
       const task = item.task;
       const row = rowContainer.createDiv({ cls: 'tasklane-plugin-task' });
-      row.style.setProperty('--tasklane-indent', `${(item.level + 1) * 16}px`);
-      row.title = task.kind === 'line' && task.line
-        ? `${task.path}:${task.line}`
-        : task.path;
+      row.style.setProperty('--tasklane-indent', `${item.level * 16}px`);
+      row.title = task.name;
 
       const openButton = row.createEl('button', { cls: 'tasklane-plugin-open' });
       openButton.addEventListener('click', () => this.plugin.openTask(task));
@@ -393,20 +393,34 @@ class TasklaneView extends ItemView {
     grid.style.setProperty('--tasklane-days', String(timeline.days));
     grid.style.setProperty('--tasklane-col-width', '28px');
 
+    const monthHeader = grid.createDiv({ cls: 'tasklane-plugin-chart-month-header' });
+    for (const segment of buildMonthSegments(timeline)) {
+      const month = monthHeader.createDiv({
+        cls: 'tasklane-plugin-chart-month',
+        text: segment.label
+      });
+      month.style.gridColumn = `${segment.start + 1} / span ${segment.days}`;
+      month.style.gridRow = '1';
+    }
+
     const header = grid.createDiv({ cls: 'tasklane-plugin-chart-header' });
     for (let index = 0; index < timeline.days; index += 1) {
       const date = addDays(timeline.start, index);
-      header.createDiv({
+      const day = header.createDiv({
         cls: `tasklane-plugin-chart-day ${weekendClass(date)}`,
         text: String(date.getDate()).padStart(2, '0')
       });
+      day.style.gridColumn = `${index + 1}`;
+      day.style.gridRow = '1';
     }
 
     for (const item of rows) {
       const row = grid.createDiv({ cls: item.type === 'group' ? 'tasklane-plugin-chart-group-row' : 'tasklane-plugin-chart-row' });
       for (let index = 0; index < timeline.days; index += 1) {
         const date = addDays(timeline.start, index);
-        row.createDiv({ cls: `tasklane-plugin-chart-cell ${weekendClass(date)}` });
+        const cell = row.createDiv({ cls: `tasklane-plugin-chart-cell ${weekendClass(date)}` });
+        cell.style.gridColumn = `${index + 1}`;
+        cell.style.gridRow = '1';
       }
       if (item.type === 'group') {
         const groupRange = getGroupRange(item.tag, tasks);
@@ -418,7 +432,7 @@ class TasklaneView extends ItemView {
         const bar = row.createDiv({ cls: 'tasklane-plugin-chart-group-bar' });
         bar.style.gridColumn = `${offset + 1} / span ${duration}`;
         bar.style.gridRow = '1';
-        bar.title = `#${item.tag}: ${groupRange.start} - ${groupRange.end}`;
+        bar.title = `#${item.tag}`;
         continue;
       }
 
@@ -428,7 +442,7 @@ class TasklaneView extends ItemView {
       const bar = row.createDiv({ cls: `tasklane-plugin-chart-bar is-${task.status}` });
       bar.style.gridColumn = `${offset + 1} / span ${duration}`;
       bar.style.gridRow = '1';
-      bar.title = `${task.name}: ${task.start} - ${task.end}`;
+      bar.title = task.name;
       bar.addEventListener('mousedown', (event) => this.startChartDrag(event, task, 'move'));
       bar.addEventListener('click', () => {
         if (this.suppressChartClick) {
@@ -563,6 +577,31 @@ function buildTimeline(tasks: TasklaneTask[]): { start: Date; days: number } {
     start,
     days: Math.max(14, daysBetween(start, end) + 1)
   };
+}
+
+function buildMonthSegments(timeline: { start: Date; days: number }): { start: number; days: number; label: string }[] {
+  const segments: { start: number; days: number; label: string }[] = [];
+  let index = 0;
+  while (index < timeline.days) {
+    const current = addDays(timeline.start, index);
+    const year = current.getFullYear();
+    const month = current.getMonth();
+    let days = 1;
+    while (index + days < timeline.days) {
+      const next = addDays(timeline.start, index + days);
+      if (next.getFullYear() !== year || next.getMonth() !== month) {
+        break;
+      }
+      days += 1;
+    }
+    segments.push({
+      start: index,
+      days,
+      label: `${year}/${String(month + 1).padStart(2, '0')}`
+    });
+    index += days;
+  }
+  return segments;
 }
 
 function updateTasklaneNoteDates(content: string, start: string, end: string): string {
@@ -701,7 +740,17 @@ function getPrimaryTag(task: TasklaneTask): string {
 }
 
 function getGroupingTags(task: TasklaneTask): string[] {
-  return task.tags.filter((tag) => tag !== 'task');
+  return task.tags
+    .map((tag) => {
+      if (tag === 'task') {
+        return '';
+      }
+      if (tag.startsWith('task/')) {
+        return tag.slice('task/'.length);
+      }
+      return tag;
+    })
+    .filter(Boolean);
 }
 
 function compareTags(a: string, b: string): number {
@@ -755,4 +804,17 @@ function weekendClass(date: Date): string {
 
 function formatTags(tags: string[]): string {
   return tags.length > 0 ? tags.map((tag) => `#${tag}`).join(' ') : '-';
+}
+
+function tagPalette(tag: string): { bg: string; border: string; text: string } {
+  let hash = 0;
+  for (let index = 0; index < tag.length; index += 1) {
+    hash = (hash * 31 + tag.charCodeAt(index)) % 360;
+  }
+  const hue = hash;
+  return {
+    bg: `hsla(${hue}, 58%, 50%, 0.16)`,
+    border: `hsla(${hue}, 58%, 46%, 0.46)`,
+    text: `hsl(${hue}, 58%, 36%)`
+  };
 }
