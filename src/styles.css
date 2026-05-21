@@ -1717,6 +1717,18 @@ body.split-dragging {
   box-shadow: 0 0 0 2px rgba(166, 226, 46, 0.14);
 }
 
+.live-md-loading {
+  min-height: 220px;
+  border: 1px solid rgba(248, 248, 242, 0.14);
+  border-radius: 8px;
+  background: #272822;
+  color: #c8c8be;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+}
+
 .live-md-codemirror .cm-editor {
   min-height: 220px;
   max-height: min(50vh, 420px);
