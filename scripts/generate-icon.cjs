@@ -4,7 +4,7 @@ const zlib = require('zlib');
 
 const rootDir = path.join(__dirname, '..');
 const buildDir = path.join(rootDir, 'build');
-const sizes = [16, 24, 32, 48, 64, 128, 256];
+const sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
 const supersample = 4;
 
 function clamp(value, min = 0, max = 255) {
@@ -213,6 +213,7 @@ function encodePng(width, height, rgba) {
 
 function drawIcon(size) {
   const surface = createSurface(size);
+  const unit = size / 256;
   const top = hexToRgb('#f4b34d');
   const bottom = hexToRgb('#2a9d8f');
   const surfaceTop = hexToRgb('#fffdf7');
@@ -223,42 +224,107 @@ function drawIcon(size) {
   const amber = hexToRgb('#f4b34d');
   const check = hexToRgb('#24776d');
 
-  fillRoundedRect(surface, 18, 18, 220, 220, 46, (y) => ({
-    ...mixColor(top, bottom, clamp((y - 18) / 220, 0, 1)),
+  const scaleValue = (value) => value * unit;
+  const roundedRect = (x, y, width, height, radius, colorForPoint) => {
+    const scaledY = scaleValue(y);
+    const scaledHeight = scaleValue(height);
+    fillRoundedRect(
+      surface,
+      scaleValue(x),
+      scaledY,
+      scaleValue(width),
+      scaledHeight,
+      scaleValue(radius),
+      typeof colorForPoint === 'function'
+        ? (pointY) => colorForPoint((pointY - scaledY) / scaledHeight)
+        : colorForPoint
+    );
+  };
+  const line = (x1, y1, x2, y2, thickness, color) => {
+    fillLine(surface, scaleValue(x1), scaleValue(y1), scaleValue(x2), scaleValue(y2), scaleValue(thickness), color);
+  };
+  const circle = (cx, cy, radius, color) => {
+    fillCircle(surface, scaleValue(cx), scaleValue(cy), scaleValue(radius), color);
+  };
+
+  roundedRect(18, 18, 220, 220, 46, (t) => ({
+    ...mixColor(top, bottom, clamp(t, 0, 1)),
     a: 255
   }));
-  fillRoundedRect(surface, 50, 54, 156, 148, 28, (y) => ({
-    ...mixColor(surfaceTop, surfaceBottom, clamp((y - 54) / 148, 0, 1)),
+  roundedRect(50, 54, 156, 148, 28, (t) => ({
+    ...mixColor(surfaceTop, surfaceBottom, clamp(t, 0, 1)),
     a: 255
   }));
 
-  fillLine(surface, 50, 95, 206, 95, 10, { ...grid, a: 255 });
-  fillLine(surface, 89, 65, 89, 191, 10, { ...grid, a: 255 });
-  fillLine(surface, 128, 65, 128, 191, 10, { ...grid, a: 255 });
-  fillLine(surface, 167, 65, 167, 191, 10, { ...grid, a: 255 });
+  line(50, 95, 206, 95, 10, { ...grid, a: 255 });
+  line(89, 65, 89, 191, 10, { ...grid, a: 255 });
+  line(128, 65, 128, 191, 10, { ...grid, a: 255 });
+  line(167, 65, 167, 191, 10, { ...grid, a: 255 });
 
-  fillLine(surface, 72, 151, 122, 151, 16, { ...teal, a: 255 });
-  fillLine(surface, 117, 119, 184, 119, 16, { ...blue, a: 255 });
-  fillCircle(surface, 72, 151, 12, { ...teal, a: 255 });
-  fillCircle(surface, 117, 119, 12, { ...blue, a: 255 });
-  fillCircle(surface, 184, 119, 12, { ...amber, a: 255 });
-  fillLine(surface, 76, 151, 117, 119, 8, { ...amber, a: 255 });
-  fillLine(surface, 151, 159, 163, 171, 12, { ...check, a: 255 });
-  fillLine(surface, 163, 171, 188, 139, 12, { ...check, a: 255 });
+  line(72, 151, 122, 151, 16, { ...teal, a: 255 });
+  line(117, 119, 184, 119, 16, { ...blue, a: 255 });
+  circle(72, 151, 12, { ...teal, a: 255 });
+  circle(117, 119, 12, { ...blue, a: 255 });
+  circle(184, 119, 12, { ...amber, a: 255 });
+  line(76, 151, 117, 119, 8, { ...amber, a: 255 });
+  line(151, 159, 163, 171, 12, { ...check, a: 255 });
+  line(163, 171, 188, 139, 12, { ...check, a: 255 });
 
-  return encodePng(size, size, downsample(surface));
+  return downsample(surface);
 }
 
-function buildIco(pngs) {
+function encodeIcoBitmap(size, rgba) {
+  const xorStride = size * 4;
+  const maskStride = Math.ceil(size / 32) * 4;
+  const xorSize = xorStride * size;
+  const maskSize = maskStride * size;
+  const header = Buffer.alloc(40);
+  const pixels = Buffer.alloc(xorSize);
+  const mask = Buffer.alloc(maskSize);
+
+  header.writeUInt32LE(40, 0);
+  header.writeInt32LE(size, 4);
+  header.writeInt32LE(size * 2, 8);
+  header.writeUInt16LE(1, 12);
+  header.writeUInt16LE(32, 14);
+  header.writeUInt32LE(0, 16);
+  header.writeUInt32LE(xorSize + maskSize, 20);
+  header.writeInt32LE(0, 24);
+  header.writeInt32LE(0, 28);
+  header.writeUInt32LE(0, 32);
+  header.writeUInt32LE(0, 36);
+
+  for (let y = 0; y < size; y += 1) {
+    const sourceY = size - 1 - y;
+    for (let x = 0; x < size; x += 1) {
+      const sourceIndex = ((sourceY * size) + x) * 4;
+      const targetIndex = (y * xorStride) + (x * 4);
+      pixels[targetIndex] = rgba[sourceIndex + 2];
+      pixels[targetIndex + 1] = rgba[sourceIndex + 1];
+      pixels[targetIndex + 2] = rgba[sourceIndex];
+      pixels[targetIndex + 3] = rgba[sourceIndex + 3];
+
+      if (rgba[sourceIndex + 3] < 128) {
+        const maskIndex = (y * maskStride) + Math.floor(x / 8);
+        mask[maskIndex] |= 0x80 >> (x % 8);
+      }
+    }
+  }
+
+  return Buffer.concat([header, pixels, mask]);
+}
+
+function buildIco(images) {
   const header = Buffer.alloc(6);
   header.writeUInt16LE(0, 0);
   header.writeUInt16LE(1, 2);
-  header.writeUInt16LE(pngs.length, 4);
+  header.writeUInt16LE(images.length, 4);
 
-  const directory = Buffer.alloc(16 * pngs.length);
+  const bitmaps = images.map(({ size, rgba }) => ({ size, data: encodeIcoBitmap(size, rgba) }));
+  const directory = Buffer.alloc(16 * bitmaps.length);
   let offset = header.length + directory.length;
 
-  pngs.forEach(({ size, data }, index) => {
+  bitmaps.forEach(({ size, data }, index) => {
     const entryOffset = index * 16;
     directory[entryOffset] = size >= 256 ? 0 : size;
     directory[entryOffset + 1] = size >= 256 ? 0 : size;
@@ -271,13 +337,17 @@ function buildIco(pngs) {
     offset += data.length;
   });
 
-  return Buffer.concat([header, directory, ...pngs.map((item) => item.data)]);
+  return Buffer.concat([header, directory, ...bitmaps.map((item) => item.data)]);
 }
 
 fs.mkdirSync(buildDir, { recursive: true });
 
-const pngs = sizes.map((size) => ({ size, data: drawIcon(size) }));
-fs.writeFileSync(path.join(buildDir, 'icon.png'), pngs[pngs.length - 1].data);
-fs.writeFileSync(path.join(buildDir, 'icon.ico'), buildIco(pngs));
+const images = sizes.map((size) => ({ size, rgba: drawIcon(size) }));
+images.forEach(({ size, rgba }) => {
+  fs.writeFileSync(path.join(buildDir, `icon-${size}.png`), encodePng(size, size, rgba));
+});
+const largestImage = images[images.length - 1];
+fs.writeFileSync(path.join(buildDir, 'icon.png'), encodePng(largestImage.size, largestImage.size, largestImage.rgba));
+fs.writeFileSync(path.join(buildDir, 'icon.ico'), buildIco(images));
 
 console.log('Generated build/icon.ico and build/icon.png');

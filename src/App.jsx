@@ -1972,6 +1972,7 @@ function App() {
   const chartCanvasRef = useRef(null);
   const splitLayoutRef = useRef(null);
   const syncLockRef = useRef(false);
+  const centeredTodayKeyRef = useRef('');
   const dragRef = useRef(null);
   const splitDragRef = useRef(null);
   const menuRef = useRef(null);
@@ -2199,11 +2200,13 @@ function App() {
     return () => window.removeEventListener('keydown', onEsc);
   }, [modalTaskId]);
 
+  const today = toDateKey(new Date());
+
   const timeline = useMemo(() => {
     if (tasks.length === 0) {
-      const today = startOfDay(new Date());
-      const start = addDays(today, -7);
-      const end = addDays(today, 21);
+      const todayDate = parseDateKey(today);
+      const start = addDays(todayDate, -14);
+      const end = addDays(todayDate, 21);
       const days = daysBetween(start, end) + 1;
       return {
         start: toDateKey(start),
@@ -2214,8 +2217,9 @@ function App() {
 
     const starts = tasks.map((task) => parseDateKey(task.start).getTime());
     const ends = tasks.map((task) => parseDateKey(task.end).getTime());
-    const first = new Date(Math.min(...starts));
-    const last = new Date(Math.max(...ends));
+    const todayMs = parseDateKey(today).getTime();
+    const first = new Date(Math.min(...starts, todayMs));
+    const last = new Date(Math.max(...ends, todayMs));
     const start = addDays(first, -6);
     const end = addDays(last, 12);
     const days = daysBetween(start, end) + 1;
@@ -2225,7 +2229,7 @@ function App() {
       days,
       width: days * COL_WIDTH
     };
-  }, [tasks]);
+  }, [tasks, today]);
 
   const monthSegments = useMemo(() => {
     const segments = [];
@@ -2289,7 +2293,9 @@ function App() {
     tagPaths.filter((path) => path !== UNTAGGED_KEY && path.split('/').length === 1)
   ), [tagPaths]);
 
-  const today = toDateKey(new Date());
+  const todayOffset = daysBetween(timeline.start, today);
+  const todayColumnLeft = todayOffset * COL_WIDTH;
+  const hasTodayInTimeline = todayOffset >= 0 && todayOffset < timeline.days;
 
   useEffect(() => {
     setCollapsedTags((prev) => {
@@ -2614,6 +2620,38 @@ function App() {
       listNode.removeEventListener('scroll', syncFromList);
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasTodayInTimeline) {
+      return undefined;
+    }
+
+    const centerKey = `${today}-${timeline.start}-${timeline.days}-${isCompact ? 'compact' : 'desktop'}`;
+    if (centeredTodayKeyRef.current === centerKey) {
+      return undefined;
+    }
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      const chartNode = chartScrollRef.current;
+      const headerNode = headerScrollRef.current;
+      if (!chartNode || !headerNode) {
+        return;
+      }
+
+      const todayCenter = todayColumnLeft + (COL_WIDTH / 2);
+      const maxScroll = Math.max(0, chartNode.scrollWidth - chartNode.clientWidth);
+      const targetScroll = clamp(todayCenter - (chartNode.clientWidth / 2), 0, maxScroll);
+      syncLockRef.current = true;
+      chartNode.scrollLeft = targetScroll;
+      headerNode.scrollLeft = targetScroll;
+      centeredTodayKeyRef.current = centerKey;
+      window.requestAnimationFrame(() => {
+        syncLockRef.current = false;
+      });
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [hasTodayInTimeline, isCompact, timeline.days, timeline.start, today, todayColumnLeft]);
 
   const updateTask = (taskId, updater) => {
     setTasksWithHistory((prev) => prev.map((task) => {
@@ -4124,6 +4162,17 @@ function App() {
               }}
               onDoubleClick={handleChartDoubleClick}
             >
+              {hasTodayInTimeline && (
+                <div
+                  className="today-column-highlight"
+                  style={{
+                    left: `${todayColumnLeft}px`,
+                    width: `${COL_WIDTH}px`
+                  }}
+                  aria-hidden="true"
+                />
+              )}
+
               {visibleRows.map((row, index) => {
                 const metric = rowMetrics.metrics[index];
                 if (row.type !== 'group') {

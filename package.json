@@ -1,6 +1,6 @@
 {
   "name": "tasklane",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Desktop task manager with Markdown notes and a Gantt chart built with Electron + React",
   "main": "electron/main.cjs",
   "author": "",
@@ -56,7 +56,7 @@
     },
     "win": {
       "icon": "build/icon.ico",
-      "compression": "maximum",
+      "compression": "normal",
       "electronLanguages": [
         "ja",
         "en-US",
