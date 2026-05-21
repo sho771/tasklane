@@ -1,8 +1,16 @@
-# Tasklane (Electron + React)
+# Tasklane (Tauri + React)
 
 タスク一覧とインタラクティブなガントチャートを備えたデスクトップ向けタスク管理ツールです。
 
 この README は日本語で管理します。今後、仕様や手順を追記する場合も日本語で記載してください。
+
+## 開発中の方針
+
+- デスクトップ基盤を Electron から Tauri へ移行中です。
+- React / Vite の画面と実装済み機能は維持し、Vault 連携などのデスクトップ API 境界を Tauri command へ置き換えます。
+- Electron 構成は当面、比較と切り戻し用に残します。
+- Tauri 版のバージョン表記は `v0.4.0t` とし、Tauri / Cargo の SemVer 上は `0.4.0-t` として管理します。
+- Tauri 版の主な起動コマンドは `npm run dev` / `npm run tauri:build` です。
 
 ## 実装済みの内容
 
@@ -211,7 +219,7 @@ Markdown 読み込み時は UTF-8 に加えて、日本語環境で使われる 
 
 ## 技術スタック
 
-- Electron
+- Tauri
 - React
 - Vite
 - CodeMirror
@@ -225,7 +233,14 @@ npm run dev
 ```
 
 - Vite 開発サーバーが `http://127.0.0.1:5173` で起動します。
-- Electron が自動的に起動し、React アプリを読み込みます。
+- Tauri が自動的に起動し、React アプリを読み込みます。
+- Electron 版を起動する場合は `npm run dev:electron` を使います。
+
+Ubuntu で Tauri 版をビルドする場合は、Rust toolchain に加えて WebKitGTK などの開発パッケージが必要です。
+
+```bash
+sudo apt-get install -y libdbus-1-dev pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+```
 
 ## ビルド
 
@@ -247,7 +262,13 @@ npm run build:win
 
 portable 版と zip 版をまとめて作成します。起動速度を優先する場合は、zip 版を展開して `Tasklane.exe` を起動してください。
 
-生成物は `release/` 配下に出力されます。
+Tauri 版のビルドは以下です。
+
+```bash
+npm run tauri:build
+```
+
+Electron 版の生成物は `release/` 配下、Tauri 版の生成物は `src-tauri/target/release/bundle/` 配下に出力されます。
 
 ## 補足
 

@@ -6,8 +6,12 @@
   "author": "",
   "license": "MIT",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron . --dev-url=http://127.0.0.1:5173\"",
+    "dev": "npm run tauri:dev",
+    "dev:vite": "vite",
+    "dev:electron": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron . --dev-url=http://127.0.0.1:5173\"",
     "build": "vite build",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "generate:icon": "node scripts/generate-icon.cjs",
     "build:desktop": "npm run build && npm run generate:icon && electron-builder",
     "build:win": "npm run build && npm run generate:icon && electron-builder --win --x64",
@@ -31,6 +35,7 @@
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.41.1",
     "@lezer/highlight": "^1.2.3",
+    "@tauri-apps/cli": "^2.11.2",
     "@vitejs/plugin-react": "^5.2.0",
     "concurrently": "^9.2.1",
     "electron": "^41.2.2",
@@ -71,5 +76,8 @@
       ],
       "artifactName": "Tasklane-${version}-${arch}.${ext}"
     }
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0"
   }
 }
