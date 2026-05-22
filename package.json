@@ -1,0 +1,75 @@
+{
+  "name": "tasklane",
+  "version": "0.4.0",
+  "description": "Desktop task manager with Markdown notes and a Gantt chart built with Electron + React",
+  "main": "electron/main.cjs",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron . --dev-url=http://127.0.0.1:5173\"",
+    "build": "vite build",
+    "generate:icon": "node scripts/generate-icon.cjs",
+    "build:desktop": "npm run build && npm run generate:icon && electron-builder",
+    "build:win": "npm run build && npm run generate:icon && electron-builder --win --x64",
+    "build:win:portable": "npm run build && npm run generate:icon && electron-builder --win portable --x64",
+    "build:win:zip": "npm run build && npm run generate:icon && electron-builder --win zip --x64",
+    "preview": "vite preview",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-html": "^6.4.11",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/lang-php": "^6.0.2",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/legacy-modes": "^6.5.2",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.1",
+    "@lezer/highlight": "^1.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "concurrently": "^9.2.1",
+    "electron": "^41.2.2",
+    "electron-builder": "^26.8.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^7.3.2",
+    "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "com.tasklane.desktop",
+    "productName": "Tasklane",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "build/icon.ico",
+      "build/icon.png",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "compression": "normal",
+      "electronLanguages": [
+        "ja",
+        "en-US",
+        "en-GB"
+      ],
+      "signAndEditExecutable": false,
+      "target": [
+        "portable",
+        "zip"
+      ],
+      "artifactName": "Tasklane-${version}-${arch}.${ext}"
+    }
+  }
+}
