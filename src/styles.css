@@ -1303,6 +1303,22 @@ body.split-dragging {
   cursor: pointer;
 }
 
+.modal-copy {
+  border: 1px solid color-mix(in oklab, var(--accent) 58%, #1c4f58 42%);
+  border-radius: 8px;
+  height: 34px;
+  min-width: 92px;
+  background: color-mix(in oklab, var(--accent) 84%, #ffffff 16%);
+  color: #123f43;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(47, 143, 121, 0.16);
+}
+
+.modal-copy:hover {
+  background: color-mix(in oklab, var(--accent) 92%, #ffffff 8%);
+}
+
 .settings-modal {
   width: min(860px, 100%);
 }
@@ -2020,6 +2036,17 @@ body.split-dragging {
   border-color: rgba(249, 38, 114, 0.36);
   background: rgba(249, 38, 114, 0.16);
   color: #ff79a8;
+}
+
+:root[data-theme='dark'] .modal-copy {
+  border-color: rgba(166, 226, 46, 0.44);
+  background: rgba(166, 226, 46, 0.22);
+  color: #d8ff8f;
+  box-shadow: 0 8px 18px rgba(166, 226, 46, 0.12);
+}
+
+:root[data-theme='dark'] .modal-copy:hover {
+  background: rgba(166, 226, 46, 0.3);
 }
 
 :root[data-theme='dark'] .modal-field-uid input {

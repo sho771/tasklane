@@ -952,6 +952,38 @@ function mergeTags(currentTags, incomingTags) {
   return [...new Set([...normalizeTags(currentTags), ...normalizeTags(incomingTags)])];
 }
 
+function appendChildTag(currentTags, rawChildPath) {
+  const tags = normalizeTags(currentTags);
+  const baseTag = tags[tags.length - 1];
+  const childPath = normalizeTagPath(rawChildPath);
+  if (!baseTag || childPath === UNTAGGED_KEY) {
+    return tags;
+  }
+
+  return [
+    ...tags.slice(0, -1),
+    normalizeTagPath(`${baseTag}/${childPath}`)
+  ];
+}
+
+function mergeModalTags(currentTags, rawDraft) {
+  const text = String(rawDraft || '').trim();
+  if (!text) {
+    return normalizeTags(currentTags);
+  }
+
+  if (text.startsWith('/')) {
+    return appendChildTag(currentTags, text);
+  }
+
+  const incomingTags = parseTagsInput(text);
+  if (incomingTags.length === 0) {
+    return normalizeTags(currentTags);
+  }
+
+  return mergeTags(currentTags, incomingTags);
+}
+
 function getPrimaryTagPath(task) {
   const tags = normalizeTags(task?.tags);
   return tags.length > 0 ? normalizeTagPath(tags[0]) : UNTAGGED_KEY;
@@ -1659,10 +1691,6 @@ function App() {
     return [...paths].sort(compareTagPath);
   }, [orderedTasks]);
 
-  const tagOptions = useMemo(() => (
-    tagPaths.filter((path) => path !== UNTAGGED_KEY && path.split('/').length === 1)
-  ), [tagPaths]);
-
   const todayOffset = daysBetween(timeline.start, today);
   const todayColumnLeft = todayOffset * COL_WIDTH;
   const hasTodayInTimeline = todayOffset >= 0 && todayOffset < timeline.days;
@@ -2103,9 +2131,9 @@ function App() {
     const initialStatus = statusValues.has(filters.status)
       ? filters.status
       : 'todo';
-    const initialTags = filters.tag === 'all'
-      ? ['task']
-      : (filters.tag === UNTAGGED_KEY ? [] : [filters.tag]);
+    const initialTags = filters.tag === 'all' || filters.tag === UNTAGGED_KEY
+      ? []
+      : [filters.tag];
 
     addTaskAt({
       name: `Task ${nextIndex}`,
@@ -2123,6 +2151,45 @@ function App() {
 
     setModalTaskId(id);
     advanceNextTaskIndex(nextIndex);
+  };
+
+  const addTaskForTag = (tagPath) => {
+    const normalizedTag = normalizeTagPath(tagPath);
+    const id = idRef.current;
+    const nextIndex = getConfiguredNextTaskIndex();
+    const start = toDateKey(new Date());
+    const end = toDateKey(addDays(start, 2));
+    const tags = normalizedTag === UNTAGGED_KEY ? [] : [normalizedTag];
+
+    addTaskAt({
+      name: `Task ${nextIndex}`,
+      index: nextIndex,
+      uid: createUid(),
+      status: 'todo',
+      start,
+      end,
+      progress: 0,
+      parentId: null,
+      dependsOn: [],
+      tags,
+      markdown: ''
+    });
+
+    setCollapsedTags((prev) => ({
+      ...prev,
+      [normalizedTag]: false
+    }));
+    setModalTaskId(id);
+    advanceNextTaskIndex(nextIndex);
+    showVaultStatus(`Added task to ${tagLabel(normalizedTag)}.`);
+  };
+
+  const handleTagRowContextMenu = (event, tagPath) => {
+    if (event.target.closest('button, input, select, textarea')) {
+      return;
+    }
+    event.preventDefault();
+    addTaskForTag(tagPath);
   };
 
   const toggleGroupCollapsed = (group) => {
@@ -2717,7 +2784,7 @@ function App() {
     const targetRow = visibleRows[row] || null;
     const fallbackTag = filters.tag !== 'all'
       ? filters.tag
-      : (targetRow?.group || tagOptions[0] || 'task');
+      : (targetRow?.group || UNTAGGED_KEY);
     const fallbackTags = fallbackTag === UNTAGGED_KEY ? [] : [fallbackTag];
     const nextIndex = getConfiguredNextTaskIndex();
 
@@ -2857,14 +2924,15 @@ function App() {
       return;
     }
 
-    const parsedTags = parseTagsInput(modalTagDraft);
-    if (parsedTags.length === 0) {
+    const currentTags = normalizeTags(modalTask.tags);
+    const nextTags = mergeModalTags(currentTags, modalTagDraft);
+    if (nextTags.join('\n') === currentTags.join('\n')) {
       setModalTagDraft('');
       return;
     }
 
     updateTask(modalTask.id, {
-      tags: mergeTags(modalTask.tags, parsedTags)
+      tags: nextTags
     });
     setModalTagDraft('');
   };
@@ -3389,6 +3457,8 @@ function App() {
                         '--group-strong': row.palette.strong
                       }}
                       key={`group-${row.group}`}
+                      onContextMenu={(event) => handleTagRowContextMenu(event, row.group)}
+                      title="Right-click to add a task with this tag"
                     >
                       <button
                         type="button"
@@ -3746,10 +3816,10 @@ function App() {
               <div className="modal-actions">
                 <button
                   type="button"
-                  className="modal-secondary"
+                  className="modal-copy"
                   onClick={() => duplicateTask(modalTask.id)}
                 >
-                  Duplicate
+                  Copy
                 </button>
                 <button
                   type="button"
@@ -3817,7 +3887,7 @@ function App() {
                   })}
                   <input
                     type="text"
-                    placeholder={normalizeTags(modalTask.tags).length === 0 ? '#task/hoge' : 'Add tag'}
+                    placeholder={normalizeTags(modalTask.tags).length === 0 ? '#tag/path' : 'Add tag'}
                     value={modalTagDraft}
                     list="tag-suggestions"
                     onChange={(event) => {
