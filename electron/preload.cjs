@@ -15,5 +15,9 @@ contextBridge.exposeInMainWorld('desktopApi', {
     deleteStaleManaged: Boolean(options.deleteStaleManaged)
   }),
   appendVaultLog: (vaultPath, entry) => ipcRenderer.invoke('vault:append-log', { vaultPath, entry }),
+  getAiApiKey: () => ipcRenderer.invoke('secure-ai-key:get'),
+  setAiApiKey: (apiKey) => ipcRenderer.invoke('secure-ai-key:set', { apiKey }),
+  clearAiApiKey: () => ipcRenderer.invoke('secure-ai-key:clear'),
+  openExternal: (url) => ipcRenderer.invoke('app:open-external', { url }),
   logRenderer: (level, message) => ipcRenderer.send('renderer:log', { level, message })
 });

@@ -18,40 +18,83 @@ const SETTINGS_KEY = 'taskkanri.desktop.settings.v1';
 const SORT_KEY = 'taskkanri.desktop.sortMode.v1';
 const IMPORT_TAG = '#task';
 const UNTAGGED_KEY = '__untagged__';
+const DEFAULT_FOCUS_TASK_LIMIT = 6;
+const DEFAULT_AI_PROVIDER = 'google';
+const AI_MODEL_CUSTOM = '__custom__';
+const AI_PROVIDERS = [
+  {
+    value: 'google',
+    label: 'Google AI Studio',
+    apiKeyLabel: 'Google AI Studio API Key',
+    apiKeyPlaceholder: 'AIza...',
+    defaultModel: 'gemini-3.5-flash',
+    models: ['gemini-3.5-flash', 'gemini-3.0-flash', 'gemini-2.5-flash']
+  },
+  {
+    value: 'openai',
+    label: 'OpenAI',
+    apiKeyLabel: 'OpenAI API Key',
+    apiKeyPlaceholder: 'sk-...',
+    defaultModel: 'gpt-5.2',
+    models: ['gpt-5.2', 'gpt-5.1', 'gpt-4.1']
+  },
+  {
+    value: 'claude',
+    label: 'Claude',
+    apiKeyLabel: 'Anthropic API Key',
+    apiKeyPlaceholder: 'sk-ant-...',
+    defaultModel: 'claude-sonnet-4-5',
+    models: ['claude-sonnet-4-5', 'claude-opus-4-8']
+  },
+  {
+    value: 'openai-compatible',
+    label: 'その他（OpenAI互換）',
+    apiKeyLabel: 'API Key',
+    apiKeyPlaceholder: '任意',
+    defaultModel: 'openai/gpt-oss-20b',
+    models: ['openai/gpt-oss-20b']
+  }
+];
+const DEFAULT_AI_MODEL = AI_PROVIDERS.find((provider) => provider.value === DEFAULT_AI_PROVIDER).defaultModel;
 const DEFAULT_STATUS_OPTIONS = [
   { value: 'todo', label: '未着手', color: '#b43030' },
   { value: 'doing', label: '処理中', color: '#2c5b9a' },
   { value: 'done', label: '完了', color: '#2f7b4c' }
 ];
-const DEFAULT_STATUS_VALUES = DEFAULT_STATUS_OPTIONS.map((option) => option.value);
-const QUICK_FILTER_OPTIONS = [
-  { value: 'all', label: 'All' },
-  { value: 'overdue', label: 'Overdue' },
-  { value: 'today', label: 'Today' },
-  { value: 'week', label: 'This Week' }
+const PRIORITY_OPTIONS = [
+  { value: 'high', label: 'High', color: '#c83d4a' },
+  { value: 'middle', label: 'Middle', color: '#2f8f5f' },
+  { value: 'low', label: 'Low', color: '#3f68c5' }
 ];
+const DEFAULT_PRIORITY = 'middle';
+const PRIORITY_ORDER = {
+  high: 0,
+  middle: 1,
+  low: 2
+};
+const DEFAULT_STATUS_VALUES = DEFAULT_STATUS_OPTIONS.map((option) => option.value);
 const TASK_SORT_FIELDS = [
-  { value: 'tag', label: 'Tag' },
-  { value: 'due', label: 'Due' },
-  { value: 'status', label: 'Status' },
+  { value: 'tag', label: 'タグ' },
+  { value: 'due', label: '期限' },
+  { value: 'status', label: 'ステータス' },
   { value: 'index', label: 'No' },
-  { value: 'name', label: 'Name' }
+  { value: 'name', label: '名前' }
 ];
 const DEFAULT_SORT_MODE = 'tagAsc';
 const TASK_SORT_VALUES = TASK_SORT_FIELDS.flatMap((field) => [`${field.value}Asc`, `${field.value}Desc`]);
 const MARKDOWN_SHORTCUT_ACTIONS = {
-  bold: { label: 'Bold', defaultKey: 'Mod-b', type: 'wrap', before: '**', after: '**' },
-  italic: { label: 'Italic', defaultKey: 'Mod-i', type: 'wrap', before: '*', after: '*' },
-  strike: { label: 'Strikethrough', defaultKey: 'Mod-Shift-x', type: 'wrap', before: '~~', after: '~~' },
-  inlineCode: { label: 'Inline code', defaultKey: 'Mod-e', type: 'wrap', before: '`', after: '`' },
-  heading1: { label: 'Heading 1', defaultKey: 'Mod-Alt-1', type: 'linePrefix', prefix: '# ' },
-  heading2: { label: 'Heading 2', defaultKey: 'Mod-Alt-2', type: 'linePrefix', prefix: '## ' },
-  heading3: { label: 'Heading 3', defaultKey: 'Mod-Alt-3', type: 'linePrefix', prefix: '### ' },
-  unorderedList: { label: 'Bullet list', defaultKey: 'Mod-Shift-8', type: 'linePrefix', prefix: '- ' },
-  checklist: { label: 'Checklist', defaultKey: 'Mod-Shift-9', type: 'linePrefix', prefix: '- [ ] ' },
-  quote: { label: 'Quote', defaultKey: 'Mod-Shift-.', type: 'linePrefix', prefix: '> ' },
-  table: { label: 'Table', defaultKey: 'Mod-Shift-t', type: 'table' },
-  currentDate: { label: 'Current date', defaultKey: 'Mod-Shift-d', type: 'currentDate' }
+  bold: { label: '太字', defaultKey: 'Mod-b', type: 'wrap', before: '**', after: '**' },
+  italic: { label: '斜体', defaultKey: 'Mod-i', type: 'wrap', before: '*', after: '*' },
+  strike: { label: '取り消し線', defaultKey: 'Mod-Shift-x', type: 'wrap', before: '~~', after: '~~' },
+  inlineCode: { label: 'インラインコード', defaultKey: 'Mod-e', type: 'wrap', before: '`', after: '`' },
+  heading1: { label: '見出し 1', defaultKey: 'Mod-Alt-1', type: 'linePrefix', prefix: '# ' },
+  heading2: { label: '見出し 2', defaultKey: 'Mod-Alt-2', type: 'linePrefix', prefix: '## ' },
+  heading3: { label: '見出し 3', defaultKey: 'Mod-Alt-3', type: 'linePrefix', prefix: '### ' },
+  unorderedList: { label: '箇条書き', defaultKey: 'Mod-Shift-8', type: 'linePrefix', prefix: '- ' },
+  checklist: { label: 'チェックリスト', defaultKey: 'Mod-Shift-9', type: 'linePrefix', prefix: '- [ ] ' },
+  quote: { label: '引用', defaultKey: 'Mod-Shift-.', type: 'linePrefix', prefix: '> ' },
+  table: { label: 'テーブル', defaultKey: 'Mod-Shift-t', type: 'table' },
+  currentDate: { label: '現在の日付', defaultKey: 'Mod-Shift-d', type: 'currentDate' }
 };
 const DEFAULT_MARKDOWN_SHORTCUTS = Object.fromEntries(
   Object.entries(MARKDOWN_SHORTCUT_ACTIONS).map(([action, config]) => [action, config.defaultKey])
@@ -60,17 +103,36 @@ const DEFAULT_SETTINGS = {
   indexDigits: 4,
   nextTaskIndex: 1,
   fileNamePattern: '{index}_{name}',
+  focusTaskLimit: DEFAULT_FOCUS_TASK_LIMIT,
   markdownShortcuts: DEFAULT_MARKDOWN_SHORTCUTS,
-  statusOptions: DEFAULT_STATUS_OPTIONS
+  statusOptions: DEFAULT_STATUS_OPTIONS,
+  ai: {
+    provider: DEFAULT_AI_PROVIDER,
+    apiKey: '',
+    model: DEFAULT_AI_MODEL,
+    endpoint: ''
+  },
+  google: {
+    defaultAllDay: true,
+    defaultStartTime: '09:00',
+    defaultDurationMinutes: 60
+  }
 };
 const DEFAULT_SETTINGS_SECTIONS = {
   general: true,
+  ai: false,
+  google: false,
   shortcuts: true,
   shortcutJson: false,
   tags: false,
   statuses: false,
   vaultLog: true
 };
+const FOCUS_VIEW_OPTIONS = [
+  { value: 'today', label: '今日' },
+  { value: 'next', label: '次' },
+  { value: 'waiting', label: '待機中' }
+];
 
 function AppIcon({ name, size = 18 }) {
   const commonProps = {
@@ -131,6 +193,17 @@ function AppIcon({ name, size = 18 }) {
       </svg>
     );
   }
+  if (name === 'sparkles') {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 3 10.8 8.2 6 10l4.8 1.8L12 17l1.2-5.2L18 10l-4.8-1.8Z" />
+        <path d="M19 15v4" />
+        <path d="M21 17h-4" />
+        <path d="M5 3v3" />
+        <path d="M6.5 4.5h-3" />
+      </svg>
+    );
+  }
   return null;
 }
 
@@ -146,6 +219,10 @@ function toDateKey(input) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function isDateKey(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function createUid(input = new Date()) {
@@ -170,6 +247,62 @@ function addDays(input, days) {
   const date = startOfDay(input);
   date.setDate(date.getDate() + days);
   return date;
+}
+
+function getLocalTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Tokyo';
+}
+
+function addMinutesToDateTime(dateKey, time, minutes) {
+  const [hour = 0, minute = 0] = String(time || '09:00').split(':').map((part) => Number(part));
+  const date = parseDateKey(dateKey);
+  date.setHours(hour, minute + Number(minutes || 60), 0, 0);
+  return {
+    date: toDateKey(date),
+    time: `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  };
+}
+
+function buildGoogleEventDescription(task) {
+  const tags = normalizeTags(task.tags).map((tag) => `#${tag}`).join(' ');
+  return [
+    `Tasklane タスク #${getTaskIndex(task)}`,
+    task.uid ? `UID: ${task.uid}` : '',
+    tags ? `タグ: ${tags}` : '',
+    `期間: ${task.start} - ${task.end}`,
+    task.markdown ? '\n---\n' : '',
+    task.markdown || ''
+  ].filter(Boolean).join('\n');
+}
+
+function formatGoogleCalendarDate(dateKey) {
+  return String(dateKey || '').replace(/-/g, '');
+}
+
+function formatGoogleCalendarDateTime(dateKey, time) {
+  return `${formatGoogleCalendarDate(dateKey)}T${String(time || '09:00').replace(':', '')}00`;
+}
+
+function buildGoogleCalendarTemplateUrl(task, options = {}) {
+  const allDay = options.allDay !== false;
+  const start = task.start;
+  const end = parseDateKey(task.end) < parseDateKey(task.start) ? task.start : task.end;
+  const params = new URLSearchParams();
+  params.set('action', 'TEMPLATE');
+  params.set('text', task.name || `タスク #${getTaskIndex(task)}`);
+  params.set('details', buildGoogleEventDescription(task));
+
+  if (allDay) {
+    params.set('dates', `${formatGoogleCalendarDate(start)}/${formatGoogleCalendarDate(toDateKey(addDays(end, 1)))}`);
+  } else {
+    const startTime = options.startTime || '09:00';
+    const durationMinutes = clamp(Math.round(Number(options.durationMinutes) || 60), 15, 480);
+    const endDateTime = addMinutesToDateTime(start, startTime, durationMinutes);
+    params.set('dates', `${formatGoogleCalendarDateTime(start, startTime)}/${formatGoogleCalendarDateTime(endDateTime.date, endDateTime.time)}`);
+    params.set('ctz', getLocalTimeZone());
+  }
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 function daysBetween(start, end) {
@@ -289,6 +422,37 @@ function normalizeStatusOptions(rawOptions = DEFAULT_STATUS_OPTIONS) {
   return normalized;
 }
 
+function getAiProvider(providerValue) {
+  return AI_PROVIDERS.find((provider) => provider.value === providerValue) || AI_PROVIDERS[0];
+}
+
+function normalizeAiSettings(rawAi = {}) {
+  const raw = rawAi && typeof rawAi === 'object' ? rawAi : {};
+  const provider = getAiProvider(typeof raw.provider === 'string' ? raw.provider : DEFAULT_AI_PROVIDER);
+  const model = typeof raw.model === 'string' && raw.model.trim()
+    ? raw.model.trim()
+    : provider.defaultModel;
+  return {
+    provider: provider.value,
+    apiKey: typeof raw.apiKey === 'string' ? raw.apiKey.trim() : '',
+    model,
+    endpoint: typeof raw.endpoint === 'string' ? raw.endpoint.trim() : ''
+  };
+}
+
+function normalizeGoogleSettings(rawGoogle = {}) {
+  const raw = rawGoogle && typeof rawGoogle === 'object' ? rawGoogle : {};
+  const defaultDurationMinutes = clamp(Math.round(Number(raw.defaultDurationMinutes) || 60), 15, 480);
+  const defaultStartTime = typeof raw.defaultStartTime === 'string' && /^\d{2}:\d{2}$/.test(raw.defaultStartTime)
+    ? raw.defaultStartTime
+    : '09:00';
+  return {
+    defaultAllDay: raw.defaultAllDay !== false,
+    defaultStartTime,
+    defaultDurationMinutes
+  };
+}
+
 function buildStatusColorMap(statusOptions = DEFAULT_STATUS_OPTIONS) {
   return Object.fromEntries(normalizeStatusOptions(statusOptions).map((option) => [
     option.value,
@@ -308,8 +472,22 @@ function normalizeSettings(rawSettings = {}) {
     indexDigits: clamp(Math.round(Number(rawSettings.indexDigits) || DEFAULT_SETTINGS.indexDigits), 1, 8),
     nextTaskIndex: normalizeTaskIndex(rawSettings.nextTaskIndex, DEFAULT_SETTINGS.nextTaskIndex),
     fileNamePattern: normalizeFileNamePattern(rawSettings.fileNamePattern),
+    focusTaskLimit: clamp(Math.round(Number(rawSettings.focusTaskLimit) || DEFAULT_FOCUS_TASK_LIMIT), 1, 50),
     markdownShortcuts: normalizeMarkdownShortcuts(rawSettings.markdownShortcuts),
-    statusOptions: normalizeStatusOptions(rawSettings.statusOptions)
+    statusOptions: normalizeStatusOptions(rawSettings.statusOptions),
+    ai: normalizeAiSettings(rawSettings.ai),
+    google: normalizeGoogleSettings(rawSettings.google)
+  };
+}
+
+function stripSensitiveSettings(rawSettings = {}) {
+  const normalized = normalizeSettings(rawSettings);
+  return {
+    ...normalized,
+    ai: {
+      ...normalized.ai,
+      apiKey: ''
+    }
   };
 }
 
@@ -343,12 +521,17 @@ function normalizeTask(rawTask, fallbackId, statusOptions = DEFAULT_STATUS_OPTIO
   const normalizedStatus = normalizeStatus(rawTask.status, progress, statusOptions);
   const safeProgress = normalizedStatus === 'done' ? 100 : progress;
   const status = normalizeStatus(rawTask.status, safeProgress, statusOptions);
+  const priority = normalizePriority(rawTask.priority);
   const parentId = rawTask.parentId == null ? null : Number(rawTask.parentId);
   const dependsOn = Array.isArray(rawTask.dependsOn)
     ? [...new Set(rawTask.dependsOn.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0 && value !== id))]
     : [];
   const uid = normalizeUid(rawTask.uid);
   const tags = normalizeTags(rawTask.tags);
+  const googleCalendarEventId = typeof rawTask.googleCalendarEventId === 'string' ? rawTask.googleCalendarEventId.trim() : '';
+  const googleCalendarHtmlLink = typeof rawTask.googleCalendarHtmlLink === 'string' ? rawTask.googleCalendarHtmlLink.trim() : '';
+  const googleCalendarId = typeof rawTask.googleCalendarId === 'string' ? rawTask.googleCalendarId.trim() : '';
+  const googleCalendarSyncedAt = typeof rawTask.googleCalendarSyncedAt === 'string' ? rawTask.googleCalendarSyncedAt.trim() : '';
 
   return {
     id,
@@ -358,10 +541,15 @@ function normalizeTask(rawTask, fallbackId, statusOptions = DEFAULT_STATUS_OPTIO
     end: safeEnd,
     progress: safeProgress,
     status,
+    priority,
     uid,
     parentId: Number.isInteger(parentId) && parentId > 0 && parentId !== id ? parentId : null,
     dependsOn,
     tags,
+    googleCalendarEventId,
+    googleCalendarHtmlLink,
+    googleCalendarId,
+    googleCalendarSyncedAt,
     sourcePath: typeof rawTask.sourcePath === 'string' ? rawTask.sourcePath : '',
     markdown: typeof rawTask.markdown === 'string'
       ? rawTask.markdown
@@ -643,12 +831,17 @@ function buildTaskMarkdown(task, settings = DEFAULT_SETTINGS) {
     `uid: ${quoteMetaValue(task.uid || '')}`,
     `name: ${quoteMetaValue(task.name)}`,
     `status: ${quoteMetaValue(normalizeStatus(task.status, task.progress, statusOptions))}`,
+    `priority: ${quoteMetaValue(normalizePriority(task.priority))}`,
     `start: ${task.start}`,
     `end: ${task.end}`,
     `progress: ${clamp(Number(task.progress) || 0, 0, 100)}`,
     `tags: ${JSON.stringify(tags)}`,
     `parentId: ${task.parentId == null ? 'null' : Number(task.parentId)}`,
     `dependsOn: [${depends.join(', ')}]`,
+    `googleCalendarEventId: ${quoteMetaValue(task.googleCalendarEventId || '')}`,
+    `googleCalendarHtmlLink: ${quoteMetaValue(task.googleCalendarHtmlLink || '')}`,
+    `googleCalendarId: ${quoteMetaValue(task.googleCalendarId || '')}`,
+    `googleCalendarSyncedAt: ${quoteMetaValue(task.googleCalendarSyncedAt || '')}`,
     '---',
     '',
     `# ${task.name}`,
@@ -804,17 +997,40 @@ function statusProgressValue(status, fallbackProgress = 0) {
   return clamp(Number(fallbackProgress) || 0, 0, 100);
 }
 
+function normalizePriority(rawPriority) {
+  const value = String(rawPriority || '').trim().toLowerCase();
+  if (value === 'high' || value === 'h') {
+    return 'high';
+  }
+  if (value === 'low' || value === 'l') {
+    return 'low';
+  }
+  if (value === 'middle' || value === 'medium' || value === 'mid' || value === 'm') {
+    return 'middle';
+  }
+  return DEFAULT_PRIORITY;
+}
+
+function buildOptionColorMap(options) {
+  return Object.fromEntries(options.map((option) => [
+    option.value,
+    statusColorPalette(option.color)
+  ]));
+}
+
 function StatusDropdown({
   value,
   onChange,
   className = '',
   statusOptions = DEFAULT_STATUS_OPTIONS,
-  statusColorMap = buildStatusColorMap(statusOptions)
+  statusColorMap = buildStatusColorMap(statusOptions),
+  label = 'ステータス',
+  normalizer = (rawValue) => normalizeStatus(rawValue, 0, statusOptions)
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef(null);
-  const options = normalizeStatusOptions(statusOptions);
-  const currentStatus = normalizeStatus(value, 0, options);
+  const options = statusOptions;
+  const currentStatus = normalizer(value);
   const currentOption = options.find((option) => option.value === currentStatus) || options[0];
   const currentColors = statusColorMap[currentStatus] || statusColorPalette(currentOption.color);
 
@@ -865,7 +1081,7 @@ function StatusDropdown({
         <span className="status-chip-caret" style={{ color: currentColors.color }}>▾</span>
       </button>
       {isOpen && (
-        <div className="status-menu" role="listbox" aria-label="Status">
+        <div className="status-menu" role="listbox" aria-label={label}>
           {options.map((option) => {
             const optionColors = statusColorMap[option.value] || statusColorPalette(option.color);
             return (
@@ -984,6 +1200,297 @@ function mergeModalTags(currentTags, rawDraft) {
   return mergeTags(currentTags, incomingTags);
 }
 
+function extractJsonText(text) {
+  const value = String(text || '').trim();
+  if (!value) {
+    return '';
+  }
+  const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) {
+    return fenced[1].trim();
+  }
+  const firstObject = value.indexOf('{');
+  const lastObject = value.lastIndexOf('}');
+  if (firstObject >= 0 && lastObject > firstObject) {
+    return value.slice(firstObject, lastObject + 1);
+  }
+  const firstArray = value.indexOf('[');
+  const lastArray = value.lastIndexOf(']');
+  if (firstArray >= 0 && lastArray > firstArray) {
+    return value.slice(firstArray, lastArray + 1);
+  }
+  return value;
+}
+
+function parseAiTaskPayload(text) {
+  const jsonText = extractJsonText(text);
+  if (!jsonText) {
+    return [];
+  }
+  const parsed = JSON.parse(jsonText);
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+  if (parsed && Array.isArray(parsed.tasks)) {
+    return parsed.tasks;
+  }
+  return [];
+}
+
+function sanitizeAiTaskDrafts(rawTasks, todayKey, statusOptions = DEFAULT_STATUS_OPTIONS) {
+  const statusValues = new Set(statusOptions.map((option) => option.value));
+  return rawTasks
+    .filter((item) => item && typeof item === 'object')
+    .map((item, index) => {
+      const name = String(item.name || item.title || '').trim();
+      if (!name) {
+        return null;
+      }
+      const start = isDateKey(item.start) ? item.start : todayKey;
+      const rawEnd = isDateKey(item.end) ? item.end : (isDateKey(item.due) ? item.due : start);
+      const end = parseDateKey(rawEnd) < parseDateKey(start) ? start : rawEnd;
+      const rawStatus = String(item.status || 'todo').trim();
+      const status = statusValues.has(rawStatus) ? rawStatus : normalizeStatus(rawStatus, 0, statusOptions);
+      return {
+        draftId: `ai-${Date.now()}-${index}`,
+        selected: true,
+        name,
+        start,
+        end,
+        status,
+        priority: normalizePriority(item.priority),
+        tags: normalizeTags(item.tags),
+        markdown: String(item.markdown || item.note || item.reason || '').trim()
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function buildAiTaskPrompt({ text, todayKey, tagPaths, statusOptions }) {
+  const tags = tagPaths.filter((tagPath) => tagPath !== UNTAGGED_KEY).slice(0, 80);
+  const statuses = statusOptions.map((option) => `${option.value}: ${option.label}`).join(', ');
+  return [
+    'あなたはTasklaneのタスク整理アシスタントです。',
+    'ユーザーの自然文メモを、実行可能なタスク候補に分解してください。',
+    '出力は必ずJSONのみです。説明文やMarkdownフェンスは不要です。',
+    '',
+    `今日の日付: ${todayKey}`,
+    `利用可能なstatus value: ${statuses}`,
+    `既存タグ候補: ${tags.length > 0 ? tags.map((tag) => `#${tag}`).join(', ') : '(なし)'}`,
+    '',
+    'JSON schema:',
+    '{"tasks":[{"name":"string","start":"YYYY-MM-DD","end":"YYYY-MM-DD","status":"todo|doing|done or configured value","priority":"High|Middle|Low","tags":["tag/path"],"markdown":"short note"}]}',
+    '',
+    'ルール:',
+    '- nameは短く具体的な作業名にする',
+    '- 日付が曖昧な場合は今日をstartにし、endもstartと同じにする',
+    '- 「今日」「明日」「来週」などは今日の日付を基準にYYYY-MM-DDへ変換する',
+    '- タグは#を付けず、既存タグに近いものがあればそれを使う',
+    '- priorityは重要度と期限の近さからHigh/Middle/Lowのいずれかにする。迷う場合はMiddleにする',
+    '- 不明な情報は作り込みすぎない',
+    '',
+    'ユーザー入力:',
+    text
+  ].join('\n');
+}
+
+function getJsonResponseTextFromOpenAi(data) {
+  if (typeof data?.output_text === 'string') {
+    return data.output_text;
+  }
+  return (data?.output || [])
+    .flatMap((item) => item?.content || [])
+    .map((content) => content?.text || '')
+    .join('\n')
+    .trim();
+}
+
+function getJsonResponseTextFromClaude(data) {
+  return (data?.content || [])
+    .map((content) => content?.text || '')
+    .join('\n')
+    .trim();
+}
+
+function getJsonResponseTextFromOpenAiCompatible(data) {
+  return data?.choices?.[0]?.message?.content || '';
+}
+
+function normalizeOpenAiCompatibleEndpoint(endpoint) {
+  const base = String(endpoint || '').trim().replace(/\/+$/u, '');
+  if (!base) {
+    throw new Error('OpenAI互換エンドポイントを入力してください。');
+  }
+  if (base.endsWith('/chat/completions')) {
+    return base;
+  }
+  if (base.endsWith('/v1')) {
+    return `${base}/chat/completions`;
+  }
+  return `${base}/v1/chat/completions`;
+}
+
+async function requestGoogleAi({ apiKey, model, prompt }) {
+  const safeApiKey = String(apiKey || '').trim();
+  const safeModel = String(model || getAiProvider('google').defaultModel).trim().replace(/^models\//u, '') || getAiProvider('google').defaultModel;
+  if (!safeApiKey) {
+    throw new Error('Google AI Studio のAPIキーが設定されていません。');
+  }
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(safeModel)}:generateContent`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': safeApiKey
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: prompt }]
+        }
+      ],
+      generationConfig: {
+        responseMimeType: 'application/json'
+      }
+    })
+  });
+
+  if (!response.ok) {
+    let message = `Google AI Studio API request failed (${response.status}).`;
+    try {
+      const data = await response.json();
+      message = data?.error?.message || message;
+    } catch {
+      // Keep the status-based message.
+    }
+    throw new Error(message);
+  }
+
+  const data = await response.json();
+  return data?.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text || '')
+    .join('\n')
+    .trim();
+}
+
+async function requestOpenAi({ apiKey, model, prompt }) {
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      input: prompt
+    })
+  });
+
+  if (!response.ok) {
+    let message = `OpenAI API request failed (${response.status}).`;
+    try {
+      const data = await response.json();
+      message = data?.error?.message || message;
+    } catch {
+      // Keep the status-based message.
+    }
+    throw new Error(message);
+  }
+
+  return getJsonResponseTextFromOpenAi(await response.json());
+}
+
+async function requestClaude({ apiKey, model, prompt }) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 2048,
+      messages: [
+        { role: 'user', content: prompt }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    let message = `Claude API request failed (${response.status}).`;
+    try {
+      const data = await response.json();
+      message = data?.error?.message || message;
+    } catch {
+      // Keep the status-based message.
+    }
+    throw new Error(message);
+  }
+
+  return getJsonResponseTextFromClaude(await response.json());
+}
+
+async function requestOpenAiCompatible({ apiKey, endpoint, model, prompt }) {
+  const response = await fetch(normalizeOpenAiCompatibleEndpoint(endpoint), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'user', content: prompt }
+      ],
+      response_format: { type: 'json_object' }
+    })
+  });
+
+  if (!response.ok) {
+    let message = `OpenAI互換API request failed (${response.status}).`;
+    try {
+      const data = await response.json();
+      message = data?.error?.message || message;
+    } catch {
+      // Keep the status-based message.
+    }
+    throw new Error(message);
+  }
+
+  return getJsonResponseTextFromOpenAiCompatible(await response.json());
+}
+
+async function generateAiTaskDrafts({ aiSettings, text, todayKey, tagPaths, statusOptions }) {
+  const settings = normalizeAiSettings(aiSettings);
+  const provider = getAiProvider(settings.provider);
+  const safeModel = settings.model || provider.defaultModel;
+  if (!settings.apiKey && settings.provider !== 'openai-compatible') {
+    throw new Error(`${provider.label} のAPIキーが設定されていません。`);
+  }
+  const prompt = buildAiTaskPrompt({ text, todayKey, tagPaths, statusOptions });
+  const outputText = await (async () => {
+    if (settings.provider === 'openai') {
+      return requestOpenAi({ apiKey: settings.apiKey, model: safeModel, prompt });
+    }
+    if (settings.provider === 'claude') {
+      return requestClaude({ apiKey: settings.apiKey, model: safeModel, prompt });
+    }
+    if (settings.provider === 'openai-compatible') {
+      return requestOpenAiCompatible({ apiKey: settings.apiKey, endpoint: settings.endpoint, model: safeModel, prompt });
+    }
+    return requestGoogleAi({ apiKey: settings.apiKey, model: safeModel, prompt });
+  })();
+  const rawTasks = parseAiTaskPayload(outputText);
+  const drafts = sanitizeAiTaskDrafts(rawTasks, todayKey, statusOptions);
+  if (drafts.length === 0) {
+    throw new Error('AIからタスク候補が返されませんでした。');
+  }
+  return drafts;
+}
+
 function getPrimaryTagPath(task) {
   const tags = normalizeTags(task?.tags);
   return tags.length > 0 ? normalizeTagPath(tags[0]) : UNTAGGED_KEY;
@@ -991,14 +1498,14 @@ function getPrimaryTagPath(task) {
 
 function tagLabel(tagPath) {
   if (tagPath === UNTAGGED_KEY) {
-    return '(No Tag)';
+    return '(タグなし)';
   }
   return `#${tagPath}`;
 }
 
 function tagGroupLabel(tagPath) {
   if (tagPath === UNTAGGED_KEY) {
-    return '(No Tag)';
+    return '(タグなし)';
   }
   const parts = normalizeTagPath(tagPath).split('/').filter(Boolean);
   if (parts.length <= 1) {
@@ -1048,28 +1555,6 @@ function isTagPathMatch(targetPath, filterPath) {
   return targetPath === filterPath || targetPath.startsWith(`${filterPath}/`);
 }
 
-function isTaskInQuickFilter(task, quickFilter, todayKey, statusOptions = DEFAULT_STATUS_OPTIONS) {
-  if (!quickFilter || quickFilter === 'all') {
-    return true;
-  }
-  const status = normalizeStatus(task.status, task.progress, statusOptions);
-  const taskStart = parseDateKey(task.start).getTime();
-  const taskEnd = parseDateKey(task.end).getTime();
-  const todayStart = parseDateKey(todayKey).getTime();
-
-  if (quickFilter === 'overdue') {
-    return taskEnd < todayStart && status !== 'done';
-  }
-  if (quickFilter === 'today') {
-    return taskStart <= todayStart && taskEnd >= todayStart;
-  }
-  if (quickFilter === 'week') {
-    const weekEnd = addDays(todayKey, 6).getTime();
-    return taskStart <= weekEnd && taskEnd >= todayStart;
-  }
-  return true;
-}
-
 function taskMatchesSearch(task, query) {
   const trimmed = String(query || '').trim().toLowerCase();
   if (!trimmed) {
@@ -1079,6 +1564,7 @@ function taskMatchesSearch(task, query) {
     task.name,
     task.uid,
     task.status,
+    task.priority,
     String(task.id),
     String(getTaskIndex(task)),
     normalizeTags(task.tags).join(' '),
@@ -1189,7 +1675,7 @@ function parseChecklistTaskLine(line, relativePath, lineNumber) {
   const tagsFromLine = normalizeTags((text.match(/#[^\s#,]+/g) || []).map((tag) => tag.replace(/^#/, '')));
   const withoutTag = text.replace(/#task(?:\b|\/[^\s#]*)/ig, ' ').replace(/\s+/g, ' ').trim();
   const normalizedName = due ? withoutTag.replace(due, ' ').replace(/\s+/g, ' ').trim() : withoutTag;
-  const safeName = normalizedName || `Task from ${getPathBaseName(relativePath) || 'note'}`;
+  const safeName = normalizedName || `${getPathBaseName(relativePath) || 'ノート'} からのタスク`;
   const today = toDateKey(new Date());
   const start = due || today;
   const end = due || toDateKey(addDays(today, 2));
@@ -1201,6 +1687,7 @@ function parseChecklistTaskLine(line, relativePath, lineNumber) {
     end,
     progress: isDone ? 100 : 0,
     status: isDone ? 'done' : 'todo',
+    priority: DEFAULT_PRIORITY,
     uid: '',
     parentId: null,
     dependsOn: [],
@@ -1225,7 +1712,7 @@ function parseChecklistTasksFromMarkdown(content, relativePath) {
 function parseTaskFromMarkdownNote(content, relativePath, statusOptions = DEFAULT_STATUS_OPTIONS) {
   const { frontmatter, body } = splitFrontmatter(content);
   const meta = parseFrontmatterBlock(frontmatter);
-  const fallbackName = String(relativePath || 'Imported Note').split('/').pop().replace(/\.md$/i, '') || 'Imported Note';
+  const fallbackName = String(relativePath || '取り込みノート').split('/').pop().replace(/\.md$/i, '') || '取り込みノート';
   const trimmedBody = String(body || '').trim();
   const firstHeading = trimmedBody.match(/^#\s+(.+)$/m);
   const name = typeof meta.name === 'string' && meta.name.trim()
@@ -1246,11 +1733,16 @@ function parseTaskFromMarkdownNote(content, relativePath, statusOptions = DEFAUL
   const end = typeof meta.end === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.end) ? meta.end : toDateKey(addDays(start, 2));
   const progress = clamp(Number(meta.progress) || 0, 0, 100);
   const status = normalizeStatus(meta.status, progress, statusOptions);
+  const priority = normalizePriority(meta.priority);
   const uid = normalizeUid(meta.uid);
   const parentRaw = Number(meta.parentId);
   const parentId = Number.isInteger(parentRaw) && parentRaw > 0 && parentRaw !== id ? parentRaw : null;
   const dependsOn = parseDependsMeta(meta.dependsOn, id);
   const tags = normalizeTags(meta.tags);
+  const googleCalendarEventId = typeof meta.googleCalendarEventId === 'string' ? meta.googleCalendarEventId.trim() : '';
+  const googleCalendarHtmlLink = typeof meta.googleCalendarHtmlLink === 'string' ? meta.googleCalendarHtmlLink.trim() : '';
+  const googleCalendarId = typeof meta.googleCalendarId === 'string' ? meta.googleCalendarId.trim() : '';
+  const googleCalendarSyncedAt = typeof meta.googleCalendarSyncedAt === 'string' ? meta.googleCalendarSyncedAt.trim() : '';
 
   return {
     id,
@@ -1260,10 +1752,15 @@ function parseTaskFromMarkdownNote(content, relativePath, statusOptions = DEFAUL
     end,
     progress,
     status,
+    priority,
     uid,
     parentId,
     dependsOn,
     tags,
+    googleCalendarEventId,
+    googleCalendarHtmlLink,
+    googleCalendarId,
+    googleCalendarSyncedAt,
     sourcePath: String(relativePath || ''),
     markdown
   };
@@ -1343,6 +1840,7 @@ function App() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isDueOpen, setIsDueOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAiInboxOpen, setIsAiInboxOpen] = useState(false);
   const [openSettingsSections, setOpenSettingsSections] = useState(DEFAULT_SETTINGS_SECTIONS);
   const [settings, setSettings] = useState(() => loadInitialSettings());
   const [settingsDraft, setSettingsDraft] = useState(() => {
@@ -1353,6 +1851,14 @@ function App() {
     };
   });
   const [settingsError, setSettingsError] = useState('');
+  const [aiInput, setAiInput] = useState('');
+  const [aiDrafts, setAiDrafts] = useState([]);
+  const [aiError, setAiError] = useState('');
+  const [isAiBusy, setIsAiBusy] = useState(false);
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [isAiApiKeyLoaded, setIsAiApiKeyLoaded] = useState(false);
+  const [focusView, setFocusView] = useState('today');
+  const [isFocusPaneOpen, setIsFocusPaneOpen] = useState(true);
   const [showLightning, setShowLightning] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light');
   const [sortMode, setSortMode] = useState(() => normalizeSortMode(localStorage.getItem(SORT_KEY)));
@@ -1363,7 +1869,6 @@ function App() {
     status: 'all',
     dueBy: '',
     tag: 'all',
-    quick: 'all',
     query: ''
   });
 
@@ -1415,7 +1920,7 @@ function App() {
   const undoTasks = () => {
     const previous = historyRef.current.pop();
     if (!previous) {
-      showVaultStatus('Nothing to undo.');
+      showVaultStatus('元に戻せる操作がありません。');
       return;
     }
     setTasks((current) => {
@@ -1423,13 +1928,13 @@ function App() {
       return previous;
     });
     idRef.current = previous.reduce((max, task) => Math.max(max, task.id), 0) + 1;
-    showVaultStatus('Undo applied.');
+    showVaultStatus('元に戻しました。');
   };
 
   const redoTasks = () => {
     const next = redoRef.current.pop();
     if (!next) {
-      showVaultStatus('Nothing to redo.');
+      showVaultStatus('やり直せる操作がありません。');
       return;
     }
     setTasks((current) => {
@@ -1437,8 +1942,43 @@ function App() {
       return next;
     });
     idRef.current = next.reduce((max, task) => Math.max(max, task.id), 0) + 1;
-    showVaultStatus('Redo applied.');
+    showVaultStatus('やり直しました。');
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSecureAiKey = async () => {
+      const legacyKey = normalizeAiSettings(settings.ai).apiKey;
+      try {
+        let storedKey = '';
+        if (window.desktopApi?.getAiApiKey) {
+          const result = await window.desktopApi.getAiApiKey();
+          storedKey = typeof result?.apiKey === 'string' ? result.apiKey : '';
+        }
+        const nextKey = storedKey || legacyKey;
+        if (legacyKey && !storedKey && window.desktopApi?.setAiApiKey) {
+          await window.desktopApi.setAiApiKey(legacyKey);
+        }
+        if (!cancelled) {
+          setAiApiKey(nextKey);
+          setIsAiApiKeyLoaded(true);
+          if (legacyKey) {
+            setSettings((prev) => stripSensitiveSettings(prev));
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAiApiKey(legacyKey);
+          setIsAiApiKeyLoaded(true);
+          showVaultStatus(`AI APIキーの安全保存を利用できません: ${error.message}`);
+        }
+      }
+    };
+    loadSecureAiKey();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
@@ -1471,7 +2011,7 @@ function App() {
   }, [sortMode]);
 
   useEffect(() => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(stripSensitiveSettings(settings)));
   }, [settings]);
 
   useEffect(() => {
@@ -1662,8 +2202,9 @@ function App() {
 
   const statusOptions = useMemo(() => normalizeStatusOptions(settings.statusOptions), [settings.statusOptions]);
   const statusColorMap = useMemo(() => buildStatusColorMap(statusOptions), [statusOptions]);
+  const priorityColorMap = useMemo(() => buildOptionColorMap(PRIORITY_OPTIONS), []);
   const statusFilterOptions = useMemo(() => ([
-    { value: 'all', label: 'All' },
+    { value: 'all', label: 'すべて' },
     { value: 'open', label: '完了以外' },
     ...statusOptions
   ]), [statusOptions]);
@@ -1746,9 +2287,6 @@ function App() {
         return false;
       }
       if (filters.dueBy && task.end > filters.dueBy) {
-        return false;
-      }
-      if (!isTaskInQuickFilter(task, filters.quick, today, statusOptions)) {
         return false;
       }
       if (!taskMatchesSearch(task, filters.query)) {
@@ -1932,6 +2470,43 @@ function App() {
     visibleRows.filter((row) => row.type === 'task').map((row) => row.task)
   ), [visibleRows]);
 
+  const focusTaskGroups = useMemo(() => {
+    const focusLimit = clamp(Math.round(Number(settings.focusTaskLimit) || DEFAULT_FOCUS_TASK_LIMIT), 1, 50);
+    const taskMap = new Map(tasks.map((task) => [task.id, task]));
+    const isDone = (task) => normalizeStatus(task.status, task.progress, statusOptions) === 'done';
+    const openTasks = tasks.filter((task) => !isDone(task));
+    const dependencyState = (task) => task.dependsOn.every((id) => {
+      const dependency = taskMap.get(id);
+      return !dependency || isDone(dependency);
+    });
+    const scoreTask = (task) => {
+      const status = normalizeStatus(task.status, task.progress, statusOptions);
+      const dueDistance = daysBetween(today, task.end);
+      const startDistance = daysBetween(today, task.start);
+      const statusBoost = status === 'doing' ? -20 : 0;
+      const overdueBoost = dueDistance < 0 ? -60 : 0;
+      const todayBoost = dueDistance === 0 ? -35 : 0;
+      const priorityBoost = (PRIORITY_ORDER[normalizePriority(task.priority)] ?? PRIORITY_ORDER.middle) * 12;
+      return overdueBoost + todayBoost + statusBoost + priorityBoost + Math.max(dueDistance, -7) + Math.max(startDistance, 0) * 0.5;
+    };
+    const sortFocus = (a, b) => scoreTask(a) - scoreTask(b) || getTaskIndex(a) - getTaskIndex(b);
+    const readyTasks = openTasks.filter(dependencyState);
+    return {
+      today: readyTasks
+        .filter((task) => task.start <= today || task.end <= today)
+        .sort(sortFocus)
+        .slice(0, focusLimit),
+      next: readyTasks
+        .filter((task) => task.start <= toDateKey(addDays(today, 7)))
+        .sort(sortFocus)
+        .slice(0, focusLimit),
+      waiting: openTasks
+        .filter((task) => !dependencyState(task))
+        .sort((a, b) => getTaskIndex(a) - getTaskIndex(b))
+        .slice(0, focusLimit)
+    };
+  }, [settings.focusTaskLimit, statusOptions, tasks, today]);
+
   const chartHeight = rowMetrics.totalHeight;
 
   const geometry = useMemo(() => {
@@ -2075,9 +2650,33 @@ function App() {
         start: safeStart,
         end: safeEnd,
         progress: progressWithStatus,
-        status: normalizeStatus(next.status, progressWithStatus, statusOptions)
+        status: normalizeStatus(next.status, progressWithStatus, statusOptions),
+        priority: normalizePriority(next.priority)
       };
     }));
+  };
+
+  const openTaskInGoogleCalendar = async (taskId) => {
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) {
+      return;
+    }
+    const google = normalizeGoogleSettings(settings.google);
+    const url = buildGoogleCalendarTemplateUrl(task, {
+      allDay: google.defaultAllDay,
+      startTime: google.defaultStartTime,
+      durationMinutes: google.defaultDurationMinutes
+    });
+    try {
+      if (window.desktopApi?.openExternal) {
+        await window.desktopApi.openExternal(url);
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      showVaultStatus('Googleカレンダーの作成画面を開きました。保存すると通知設定がGoogle側で適用されます。');
+    } catch (error) {
+      showVaultStatus(`Googleカレンダーを開けませんでした: ${error.message}`);
+    }
   };
 
   const getConfiguredNextTaskIndex = () => Math.max(
@@ -2136,10 +2735,11 @@ function App() {
       : [filters.tag];
 
     addTaskAt({
-      name: `Task ${nextIndex}`,
+      name: `タスク ${nextIndex}`,
       index: nextIndex,
       uid,
       status: initialStatus,
+      priority: DEFAULT_PRIORITY,
       start,
       end,
       progress: statusProgressValue(initialStatus, 0),
@@ -2162,10 +2762,11 @@ function App() {
     const tags = normalizedTag === UNTAGGED_KEY ? [] : [normalizedTag];
 
     addTaskAt({
-      name: `Task ${nextIndex}`,
+      name: `タスク ${nextIndex}`,
       index: nextIndex,
       uid: createUid(),
       status: 'todo',
+      priority: DEFAULT_PRIORITY,
       start,
       end,
       progress: 0,
@@ -2181,7 +2782,7 @@ function App() {
     }));
     setModalTaskId(id);
     advanceNextTaskIndex(nextIndex);
-    showVaultStatus(`Added task to ${tagLabel(normalizedTag)}.`);
+      showVaultStatus(`${tagLabel(normalizedTag)} にタスクを追加しました。`);
   };
 
   const handleTagRowContextMenu = (event, tagPath) => {
@@ -2190,6 +2791,96 @@ function App() {
     }
     event.preventDefault();
     addTaskForTag(tagPath);
+  };
+
+  const openAiInbox = () => {
+    setAiError('');
+    setIsAiInboxOpen(true);
+  };
+
+  const closeAiInbox = () => {
+    if (isAiBusy) {
+      return;
+    }
+    setAiError('');
+    setIsAiInboxOpen(false);
+  };
+
+  const updateAiDraft = (draftId, updates) => {
+    setAiDrafts((prev) => prev.map((draft) => (
+      draft.draftId === draftId ? { ...draft, ...updates } : draft
+    )));
+  };
+
+  const handleGenerateAiDrafts = async () => {
+    const text = aiInput.trim();
+    if (!text) {
+      setAiError('タスク化したい内容を入力してください。');
+      return;
+    }
+    if (!isAiApiKeyLoaded) {
+      setAiError('AI APIキーを読み込み中です。少し待ってから再実行してください。');
+      return;
+    }
+    setIsAiBusy(true);
+    setAiError('');
+    try {
+      const drafts = await generateAiTaskDrafts({
+        aiSettings: {
+          ...settings.ai,
+          apiKey: aiApiKey
+        },
+        text,
+        todayKey: today,
+        tagPaths,
+        statusOptions
+      });
+      setAiDrafts(drafts);
+      showVaultStatus(`AIがタスク候補を ${drafts.length} 件作成しました。`);
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : 'AIによるタスク候補の作成に失敗しました。');
+    } finally {
+      setIsAiBusy(false);
+    }
+  };
+
+  const createTasksFromAiDrafts = () => {
+    const selectedDrafts = aiDrafts.filter((draft) => draft.selected);
+    if (selectedDrafts.length === 0) {
+      setAiError('作成する候補を選択してください。');
+      return;
+    }
+    const firstId = idRef.current;
+    const firstIndex = getConfiguredNextTaskIndex();
+
+    selectedDrafts.forEach((draft, offset) => {
+      const status = normalizeStatus(draft.status, 0, statusOptions);
+      const start = isDateKey(draft.start) ? draft.start : today;
+      const rawEnd = isDateKey(draft.end) ? draft.end : start;
+      const end = parseDateKey(rawEnd) < parseDateKey(start) ? start : rawEnd;
+      addTaskAt({
+        name: draft.name,
+        index: firstIndex + offset,
+        uid: createUid(new Date(Date.now() + offset * 1000)),
+        status,
+        priority: normalizePriority(draft.priority),
+        start,
+        end,
+        progress: statusProgressValue(status, 0),
+        parentId: null,
+        dependsOn: [],
+        tags: normalizeTags(draft.tags),
+        markdown: draft.markdown || ''
+      }, tasks.length + offset);
+    });
+
+    advanceNextTaskIndex(firstIndex + selectedDrafts.length - 1);
+    setModalTaskId(firstId);
+    setAiInput('');
+    setAiDrafts([]);
+    setAiError('');
+    setIsAiInboxOpen(false);
+    showVaultStatus(`AI Inboxからタスクを ${selectedDrafts.length} 件作成しました。`);
   };
 
   const toggleGroupCollapsed = (group) => {
@@ -2255,7 +2946,7 @@ function App() {
       delete next[oldPath];
       return next;
     });
-    showVaultStatus(`Tag renamed: ${tagLabel(normalizedOld)} -> ${tagLabel(normalizedNew)}`);
+    showVaultStatus(`タグ名を変更しました: ${tagLabel(normalizedOld)} -> ${tagLabel(normalizedNew)}`);
   };
 
   const deleteTagPath = (tagPath) => {
@@ -2263,7 +2954,7 @@ function App() {
     if (normalizedTarget === UNTAGGED_KEY) {
       return;
     }
-    const ok = window.confirm(`Remove ${tagLabel(normalizedTarget)} from matching tasks?`);
+    const ok = window.confirm(`${tagLabel(normalizedTarget)} を該当タスクから削除しますか？`);
     if (!ok) {
       return;
     }
@@ -2280,7 +2971,7 @@ function App() {
         return normalized !== normalizedTarget && !normalized.startsWith(`${normalizedTarget}/`);
       })
     ));
-    showVaultStatus(`Tag removed: ${tagLabel(normalizedTarget)}`);
+    showVaultStatus(`タグを削除しました: ${tagLabel(normalizedTarget)}`);
   };
 
   const duplicateTask = (taskId) => {
@@ -2293,28 +2984,28 @@ function App() {
     const id = idRef.current;
     addTaskAt({
       ...original,
-      name: `${original.name} Copy`,
+      name: `${original.name} コピー`,
       index: nextIndex,
       uid: createUid(),
       sourcePath: ''
     }, insertionIndex);
     setModalTaskId(id);
     advanceNextTaskIndex(nextIndex);
-    showVaultStatus(`Duplicated Task #${getTaskIndex(original)}.`);
+    showVaultStatus(`タスク #${getTaskIndex(original)} を複製しました。`);
   };
 
   const handleDisconnectVault = () => {
     setVaultPath('');
-    showVaultStatus('Vault disconnected.');
+    showVaultStatus('Vault接続を解除しました。');
   };
 
   const handleClearAllTasks = () => {
     if (tasks.length === 0) {
-      showVaultStatus('No tasks to clear.');
+      showVaultStatus('削除するタスクがありません。');
       return;
     }
 
-    const ok = window.confirm('Delete all tasks? You can restore them with Undo until the app is closed.');
+    const ok = window.confirm('すべてのタスクを削除しますか？アプリを閉じるまではUndoで復元できます。');
     if (!ok) {
       return;
     }
@@ -2323,7 +3014,7 @@ function App() {
     setModalTaskId(null);
     idRef.current = 1;
     setSettings((prev) => normalizeSettings({ ...prev, nextTaskIndex: 1 }));
-    showVaultStatus('All tasks deleted.');
+    showVaultStatus('すべてのタスクを削除しました。');
   };
 
   const syncTasksToVault = async (targetVaultPath, targetTasks, options = {}) => {
@@ -2386,7 +3077,7 @@ function App() {
   const loadTasksFromVaultPath = async (targetVaultPath) => {
     const api = getDesktopApi();
     if (!api) {
-      showVaultStatus('Vault API is unavailable.');
+      showVaultStatus('Vault APIを利用できません。');
       return { importedCount: 0 };
     }
 
@@ -2442,7 +3133,7 @@ function App() {
   const handleSelectVault = async () => {
     const api = getDesktopApi();
     if (!api) {
-      showVaultStatus('Vault API is unavailable.');
+      showVaultStatus('Vault APIを利用できません。');
       return;
     }
 
@@ -2454,13 +3145,13 @@ function App() {
         const { importedCount } = await loadTasksFromVaultPath(result.path);
         const vaultName = getPathBaseName(result.path);
         if (importedCount > 0) {
-          showVaultStatus(`Vault selected: ${vaultName}. Loaded ${importedCount} tasks.`, result.path);
+          showVaultStatus(`Vaultを選択しました: ${vaultName}。${importedCount} 件のタスクを読み込みました。`, result.path);
         } else {
-          showVaultStatus(`Vault selected: ${vaultName}. No task markdown found.`, result.path);
+          showVaultStatus(`Vaultを選択しました: ${vaultName}。タスクMarkdownは見つかりませんでした。`, result.path);
         }
       }
     } catch (error) {
-      showVaultStatus(`Failed to select vault: ${error.message}`);
+      showVaultStatus(`Vaultの選択に失敗しました: ${error.message}`);
     } finally {
       setIsVaultBusy(false);
     }
@@ -2545,12 +3236,12 @@ function App() {
 
   const handleImportNotesFromVault = async () => {
     if (!vaultPath) {
-      showVaultStatus('Select a vault first.');
+      showVaultStatus('先にVaultを選択してください。');
       return;
     }
     const api = getDesktopApi();
     if (!api) {
-      showVaultStatus('Vault API is unavailable.');
+      showVaultStatus('Vault APIを利用できません。');
       return;
     }
 
@@ -2577,14 +3268,14 @@ function App() {
       }
 
       if (parsedRecords.length === 0) {
-        showVaultStatus(`No ${IMPORT_TAG} task lines found in vault.`);
+        showVaultStatus(`Vault内に ${IMPORT_TAG} のタスク行は見つかりませんでした。`);
         return;
       }
 
       const { importedCount, updatedCount } = mergeImportedTasks(parsedRecords);
-      showVaultStatus(`Imported ${importedCount} / Updated ${updatedCount} notes with ${IMPORT_TAG}.`);
+      showVaultStatus(`${IMPORT_TAG} のノートを ${importedCount} 件取り込み、${updatedCount} 件更新しました。`);
     } catch (error) {
-      showVaultStatus(`Import failed: ${error.message}`);
+      showVaultStatus(`取り込みに失敗しました: ${error.message}`);
     } finally {
       setIsVaultBusy(false);
     }
@@ -2606,14 +3297,14 @@ function App() {
       const relativePath = selected.relativePath || getPathBaseName(selected.path) || 'Selected.md';
       const parsedRecords = parseTasksFromMarkdown(selected.content, relativePath, statusOptions);
       if (parsedRecords.length === 0) {
-        showVaultStatus(`No ${IMPORT_TAG} task lines found in selected file.`);
+        showVaultStatus(`選択したファイルに ${IMPORT_TAG} のタスク行は見つかりませんでした。`);
         return;
       }
 
       const { importedCount, updatedCount } = mergeImportedTasks(parsedRecords);
-      showVaultStatus(`Imported ${importedCount} / Updated ${updatedCount} tasks from one file.`);
+      showVaultStatus(`1ファイルから ${importedCount} 件取り込み、${updatedCount} 件更新しました。`);
     } catch (error) {
-      showVaultStatus(`Import file failed: ${error.message}`);
+      showVaultStatus(`ファイル取り込みに失敗しました: ${error.message}`);
     } finally {
       setIsVaultBusy(false);
     }
@@ -2631,7 +3322,7 @@ function App() {
         const deletedText = result.deletedCount ? ` / Deleted ${result.deletedCount}` : '';
         appendVaultLog(`Auto-saved ${result.writtenCount}${deletedText} tasks to ${getPathBaseName(vaultPath)}.`);
       } catch (error) {
-        showVaultStatus(`Auto-save failed: ${error.message}`);
+        showVaultStatus(`自動保存に失敗しました: ${error.message}`);
       } finally {
         autoSyncTimerRef.current = null;
       }
@@ -2793,6 +3484,7 @@ function App() {
       index: nextIndex,
       uid,
       status: 'todo',
+      priority: DEFAULT_PRIORITY,
       start,
       end,
       progress: 0,
@@ -2913,19 +3605,41 @@ function App() {
   const modalMarkdownPath = modalTask ? getTaskMarkdownRelativePath(modalTask, settings) : '';
   const [modalTagDraft, setModalTagDraft] = useState('');
   const noteEditorRef = useRef(null);
+  const modalTagSuggestionOptions = useMemo(() => {
+    if (!modalTask) {
+      return [];
+    }
+    const currentTags = new Set(normalizeTags(modalTask.tags));
+    const query = normalizeTagPath(modalTagDraft.replace(/^#/, ''));
+    return tagPaths
+      .filter((tagPath) => tagPath !== UNTAGGED_KEY && !currentTags.has(tagPath))
+      .filter((tagPath) => !query || tagPath.toLowerCase().includes(query.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b, 'ja'));
+  }, [modalTask, modalTagDraft, tagPaths]);
+  const modalDependencySuggestionOptions = useMemo(() => (
+    modalTask
+      ? tasks
+        .filter((task) => task.id !== modalTask.id)
+        .sort((a, b) => getTaskIndex(a) - getTaskIndex(b))
+      : []
+  ), [modalTask, tasks]);
 
   useEffect(() => {
     setModalTagDraft('');
   }, [modalTaskId]);
 
   const commitTagDraft = () => {
+    commitTagValue(modalTagDraft);
+  };
+
+  const commitTagValue = (value) => {
     if (!modalTask) {
       setModalTagDraft('');
       return;
     }
 
     const currentTags = normalizeTags(modalTask.tags);
-    const nextTags = mergeModalTags(currentTags, modalTagDraft);
+    const nextTags = mergeModalTags(currentTags, value);
     if (nextTags.join('\n') === currentTags.join('\n')) {
       setModalTagDraft('');
       return;
@@ -2935,6 +3649,15 @@ function App() {
       tags: nextTags
     });
     setModalTagDraft('');
+  };
+
+  const addModalDependency = (taskId) => {
+    if (!modalTask || taskId === modalTask.id) {
+      return;
+    }
+    updateTask(modalTask.id, {
+      dependsOn: [...new Set([...modalTask.dependsOn, taskId])]
+    });
   };
 
   const removeModalTag = (tagToRemove) => {
@@ -2963,7 +3686,13 @@ function App() {
       indexDigits: settings.indexDigits,
       nextTaskIndex: settings.nextTaskIndex,
       fileNamePattern: settings.fileNamePattern,
+      focusTaskLimit: settings.focusTaskLimit,
       statusOptions: settings.statusOptions,
+      ai: {
+        ...normalizeAiSettings(settings.ai),
+        apiKey: aiApiKey
+      },
+      google: normalizeGoogleSettings(settings.google),
       shortcutsJson: JSON.stringify(settings.markdownShortcuts, null, 2)
     });
     setSettingsError('');
@@ -2975,19 +3704,35 @@ function App() {
     setIsSettingsOpen(false);
   };
 
-  const saveSettings = () => {
+  const saveSettings = async () => {
     try {
       const markdownShortcuts = JSON.parse(settingsDraft.shortcutsJson || '{}');
-      setSettings(normalizeSettings({
+      const nextAiSettings = normalizeAiSettings(settingsDraft.ai);
+      if (window.desktopApi?.setAiApiKey) {
+        await window.desktopApi.setAiApiKey(nextAiSettings.apiKey);
+      } else if (nextAiSettings.apiKey) {
+        throw new Error('安全なAPIキー保存機能を利用できません。');
+      }
+      setAiApiKey(nextAiSettings.apiKey);
+      setIsAiApiKeyLoaded(true);
+      setSettings(stripSensitiveSettings({
         indexDigits: settingsDraft.indexDigits,
         nextTaskIndex: settingsDraft.nextTaskIndex,
         fileNamePattern: settingsDraft.fileNamePattern,
+        focusTaskLimit: settingsDraft.focusTaskLimit,
         statusOptions: settingsDraft.statusOptions,
+        ai: {
+          ...nextAiSettings,
+          apiKey: ''
+        },
+        google: settingsDraft.google,
         markdownShortcuts
       }));
       closeSettings();
-    } catch {
-      setSettingsError('Markdown shortcuts JSON is invalid.');
+    } catch (error) {
+      setSettingsError(error instanceof SyntaxError
+        ? 'MarkdownショートカットJSONが不正です。'
+        : error instanceof Error ? error.message : '設定を保存できませんでした。');
     }
   };
 
@@ -3043,7 +3788,7 @@ function App() {
         ...prev,
         statusOptions: [
           ...current,
-          { value, label: 'New Status', color: '#7c5cff' }
+          { value, label: '新しいステータス', color: '#7c5cff' }
         ]
       };
     });
@@ -3110,7 +3855,6 @@ function App() {
       status: 'all',
       dueBy: '',
       tag: 'all',
-      quick: 'all',
       query: ''
     });
     setIsSearchOpen(false);
@@ -3122,7 +3866,6 @@ function App() {
     || filters.dueBy
     || filters.tag !== 'all'
     || filters.status !== 'all'
-    || filters.quick !== 'all'
   );
 
   useEffect(() => {
@@ -3148,6 +3891,10 @@ function App() {
       );
 
       if (event.key === 'Escape') {
+        if (isAiInboxOpen) {
+          closeAiInbox();
+          return;
+        }
         if (isSettingsOpen) {
           closeSettings();
           return;
@@ -3199,16 +3946,26 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [filters, isDueOpen, isSearchOpen, isSettingsOpen, modalTaskId, settings, tasks, modalTagDraft]);
+  }, [filters, isAiBusy, isAiInboxOpen, isDueOpen, isSearchOpen, isSettingsOpen, modalTaskId, settings, tasks, modalTagDraft]);
 
   const splitStyle = isCompact ? undefined : { gridTemplateColumns: `${leftWidth}px 10px minmax(0, 1fr)` };
-  const vaultLabel = vaultPath ? getPathBaseName(vaultPath) : 'No Vault';
+  const vaultLabel = vaultPath ? getPathBaseName(vaultPath) : 'Vault未選択';
   const runMenuAction = (action) => () => {
     setIsMenuOpen(false);
     action();
   };
   const currentSortField = getSortField(sortMode);
   const currentSortDirection = getSortDirection(sortMode);
+  const activeAiSettings = normalizeAiSettings(settings.ai);
+  const activeAiProvider = getAiProvider(activeAiSettings.provider);
+  const draftAiSettings = normalizeAiSettings(settingsDraft.ai);
+  const draftAiProvider = getAiProvider(draftAiSettings.provider);
+  const draftModelOptions = draftAiProvider.models;
+  const aiConnectionLabel = aiApiKey || activeAiSettings.provider === 'openai-compatible'
+    ? `${activeAiProvider.label} / ${activeAiSettings.model || activeAiProvider.defaultModel}`
+    : isAiApiKeyLoaded
+      ? '設定でAIプロバイダーとAPIキーを入力してください。'
+      : 'AI APIキーを読み込み中です。';
 
   return (
     <div className="desktop-root">
@@ -3217,13 +3974,17 @@ function App() {
           <div className="panel-top">
             <div className="toolbar-row">
               <button type="button" className="task-add-btn" onClick={handleTaskAddClick}>
-                Task Add
+                タスク追加
+              </button>
+              <button type="button" className="ai-inbox-btn" onClick={openAiInbox}>
+                <AppIcon name="sparkles" size={16} />
+                <span>AI</span>
               </button>
               <div className="search-anchor" ref={searchPopupRef}>
                 <button
                   type="button"
                   className={`search-trigger ${filters.query ? 'is-active' : ''}`}
-                  aria-label="Open task search"
+                  aria-label="タスク検索を開く"
                   aria-expanded={isSearchOpen}
                   onClick={openSearchPopup}
                 >
@@ -3232,13 +3993,13 @@ function App() {
                 {isSearchOpen && (
                   <div className="search-popover">
                     <label className="search-popover-field">
-                      <span>Search</span>
+                      <span>検索</span>
                       <input
                         ref={searchInputRef}
                         type="search"
                         value={filters.query}
                         onChange={(event) => setFilters((prev) => ({ ...prev, query: event.target.value }))}
-                        placeholder="Name, tag, note"
+                        placeholder="名前、タグ、メモ"
                       />
                     </label>
                     {filters.query && (
@@ -3250,7 +4011,7 @@ function App() {
                           searchInputRef.current?.focus();
                         }}
                       >
-                        Clear
+                        クリア
                       </button>
                     )}
                   </div>
@@ -3260,9 +4021,9 @@ function App() {
                 <button
                   type="button"
                   className={`toolbar-icon-btn ${filters.dueBy ? 'is-active' : ''}`}
-                  aria-label="Open due date filter"
+                  aria-label="期限フィルターを開く"
                   aria-expanded={isDueOpen}
-                  title={filters.dueBy ? `Due by ${filters.dueBy}` : 'Due filter'}
+                  title={filters.dueBy ? `${filters.dueBy} まで` : '期限フィルター'}
                   onClick={openDuePopup}
                 >
                   <AppIcon name="calendar" />
@@ -3270,7 +4031,7 @@ function App() {
                 {isDueOpen && (
                   <div className="due-popover">
                     <label className="due-popover-field">
-                      <span>Due</span>
+                      <span>期限</span>
                       <input
                         ref={dueInputRef}
                         type="date"
@@ -3287,7 +4048,7 @@ function App() {
                           dueInputRef.current?.focus();
                         }}
                       >
-                        Clear
+                        クリア
                       </button>
                     )}
                   </div>
@@ -3296,8 +4057,8 @@ function App() {
               <button
                 type="button"
                 className={`toolbar-icon-btn ${hasActiveFilters ? 'is-active' : ''}`}
-                aria-label="Clear filters"
-                title="Clear filters"
+                aria-label="フィルターをクリア"
+                title="フィルターをクリア"
                 disabled={!hasActiveFilters}
                 onClick={clearFilters}
               >
@@ -3308,8 +4069,8 @@ function App() {
                 <button
                   type="button"
                   className="toolbar-icon-btn"
-                  aria-label="Undo"
-                  title="Undo"
+                  aria-label="元に戻す"
+                  title="元に戻す"
                   onClick={undoTasks}
                 >
                   <AppIcon name="undo" />
@@ -3317,8 +4078,8 @@ function App() {
                 <button
                   type="button"
                   className="toolbar-icon-btn"
-                  aria-label="Redo"
-                  title="Redo"
+                  aria-label="やり直し"
+                  title="やり直し"
                   onClick={redoTasks}
                 >
                   <AppIcon name="redo" />
@@ -3327,7 +4088,7 @@ function App() {
                   <button
                     type="button"
                     className="menu-trigger"
-                    aria-label="Open actions menu"
+                    aria-label="操作メニューを開く"
                     aria-expanded={isMenuOpen}
                     onClick={() => setIsMenuOpen((prev) => !prev)}
                   >
@@ -3336,11 +4097,11 @@ function App() {
                   {isMenuOpen && (
                     <div className="toolbar-menu">
                       <div className="menu-vault">
-                        <span className={`vault-chip ${vaultPath ? '' : 'muted'}`} title={vaultPath || 'No vault selected'}>
+                        <span className={`vault-chip ${vaultPath ? '' : 'muted'}`} title={vaultPath || 'Vaultが選択されていません'}>
                           {vaultLabel}
                         </span>
                         <div className="menu-display-controls">
-                          <label className="lightning-toggle menu-lightning-toggle" title="Progress line">
+                          <label className="lightning-toggle menu-lightning-toggle" title="進捗線">
                             <input
                               type="checkbox"
                               checked={showLightning}
@@ -3352,24 +4113,24 @@ function App() {
                             type="button"
                             className="theme-toggle menu-theme-toggle"
                             onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-                            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+                            aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
+                            title={theme === 'dark' ? 'ライトモード' : 'ダークモード'}
                           >
                             {theme === 'dark' ? '☀' : '☾'}
                           </button>
                         </div>
                       </div>
                       <button type="button" className="menu-action-btn" onClick={runMenuAction(handleSelectVault)} disabled={isVaultBusy}>
-                        Vault
+                        Vaultを選択
                       </button>
                       <button type="button" className="menu-action-btn" onClick={runMenuAction(handleDisconnectVault)} disabled={!vaultPath || isVaultBusy}>
-                        Vault Off
+                        Vault解除
                       </button>
                       <button type="button" className="menu-action-btn" onClick={runMenuAction(handleImportSingleFile)} disabled={isVaultBusy}>
-                        Import File
+                        ファイル取り込み
                       </button>
                       <button type="button" className="menu-action-btn" onClick={runMenuAction(openSettings)}>
-                        Settings
+                        設定
                       </button>
                     </div>
                   )}
@@ -3378,7 +4139,7 @@ function App() {
             </div>
             <div className="filter-row">
               <label className="filter-field">
-                <span>Status</span>
+                <span>ステータス</span>
                 <select
                   value={filters.status}
                   onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
@@ -3389,30 +4150,19 @@ function App() {
                 </select>
               </label>
               <label className="filter-field filter-field-date">
-                <span>Quick</span>
-                <select
-                  value={filters.quick}
-                  onChange={(event) => setFilters((prev) => ({ ...prev, quick: event.target.value }))}
-                >
-                  {QUICK_FILTER_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="filter-field filter-field-date">
-                <span>Tag</span>
+                <span>タグ</span>
                 <select
                   value={filters.tag}
                   onChange={(event) => setFilters((prev) => ({ ...prev, tag: event.target.value }))}
                 >
-                  <option value="all">All</option>
+                  <option value="all">すべて</option>
                   {tagPaths.map((tagPath) => (
                     <option key={tagPath} value={tagPath}>{tagLabel(tagPath)}</option>
                   ))}
                 </select>
               </label>
               <div className="filter-field filter-field-sort">
-                <span>Sort</span>
+                <span>並び替え</span>
                 <div className="sort-control">
                   <select
                     value={currentSortField}
@@ -3425,8 +4175,8 @@ function App() {
                   <button
                     type="button"
                     className="sort-direction-btn"
-                    aria-label={currentSortDirection === 'Asc' ? 'Switch to descending' : 'Switch to ascending'}
-                    title={currentSortDirection === 'Asc' ? 'Ascending' : 'Descending'}
+                    aria-label={currentSortDirection === 'Asc' ? '降順に切り替え' : '昇順に切り替え'}
+                    title={currentSortDirection === 'Asc' ? '昇順' : '降順'}
                     onClick={() => setSortMode(buildSortMode(currentSortField, currentSortDirection === 'Asc' ? 'Desc' : 'Asc'))}
                   >
                     {currentSortDirection === 'Asc' ? '▲' : '▼'}
@@ -3440,7 +4190,7 @@ function App() {
             <div className="task-list-inner" style={{ minHeight: `${chartHeight}px` }}>
               {visibleRows.length === 0 && (
                 <div className="empty-row" style={{ height: `${TASK_ROW_HEIGHT}px` }}>
-                  No tasks match the current filters.
+                  現在のフィルターに一致するタスクはありません。
                 </div>
               )}
               {visibleRows.map((row, index) => {
@@ -3458,13 +4208,13 @@ function App() {
                       }}
                       key={`group-${row.group}`}
                       onContextMenu={(event) => handleTagRowContextMenu(event, row.group)}
-                      title="Right-click to add a task with this tag"
+                      title="右クリックでこのタグのタスクを追加"
                     >
                       <button
                         type="button"
                         className="group-toggle"
                         onClick={() => toggleGroupCollapsed(row.group)}
-                        aria-label={`${row.collapsed ? 'Expand' : 'Collapse'} ${row.group}`}
+                        aria-label={`${row.collapsed ? '展開' : '折りたたみ'} ${row.group}`}
                       >
                         {row.collapsed ? '▸' : '▾'}
                       </button>
@@ -3482,8 +4232,8 @@ function App() {
                             [row.group]: nextColor
                           }));
                         }}
-                        title={`${row.group} color`}
-                        aria-label={`${row.group} color`}
+                        title={`${row.group} の色`}
+                        aria-label={`${row.group} の色`}
                       />
                       <strong className="group-name">{row.label}</strong>
                       <span className="group-counts" aria-label={statusOptions.map((option) => `${option.label} ${row.statusCounts[option.value] || 0}`).join('、')}>
@@ -3550,7 +4300,7 @@ function App() {
           className="splitter"
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize task list and gantt"
+          aria-label="タスク一覧とガントチャートの幅を調整"
           onMouseDown={startSplitDrag}
         >
           <span />
@@ -3808,18 +4558,194 @@ function App() {
         </section>
       </div>
 
+      <button
+        type="button"
+        className={`focus-drawer-trigger ${isFocusPaneOpen ? 'is-open' : ''}`}
+        onClick={() => setIsFocusPaneOpen((prev) => !prev)}
+        aria-expanded={isFocusPaneOpen}
+        aria-label={isFocusPaneOpen ? 'フォーカスペインを閉じる' : 'フォーカスペインを開く'}
+      >
+        {isFocusPaneOpen ? '›' : '次やるタスク'}
+      </button>
+
+      <aside className={`focus-drawer ${isFocusPaneOpen ? 'is-open' : ''}`} aria-label="フォーカスタスク">
+        <header className="focus-drawer-head">
+          <div>
+            <span>次やるタスク</span>
+            <strong>{FOCUS_VIEW_OPTIONS.find((option) => option.value === focusView)?.label}</strong>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsFocusPaneOpen(false)}
+            aria-label="フォーカスペインを閉じる"
+          >
+            ×
+          </button>
+        </header>
+        <div className="focus-panel">
+          <div className="focus-tabs" role="tablist" aria-label="フォーカスタスクの分類">
+            {FOCUS_VIEW_OPTIONS.map((option) => (
+              <button
+                type="button"
+                key={option.value}
+                className={focusView === option.value ? 'is-active' : ''}
+                onClick={() => setFocusView(option.value)}
+              >
+                {option.label}
+                <span>{focusTaskGroups[option.value].length}</span>
+              </button>
+            ))}
+          </div>
+          <div className="focus-task-list">
+            {focusTaskGroups[focusView].length === 0 && (
+              <div className="focus-empty">対象タスクはありません。</div>
+            )}
+            {focusTaskGroups[focusView].map((task) => {
+              const primaryTag = getPrimaryTagPath(task);
+              const dueToday = task.end <= today;
+              const priority = normalizePriority(task.priority);
+              const priorityOption = PRIORITY_OPTIONS.find((option) => option.value === priority) || PRIORITY_OPTIONS[1];
+              return (
+                <button
+                  type="button"
+                  className={`focus-task ${dueToday ? 'is-urgent' : ''}`}
+                  key={`focus-${focusView}-${task.id}`}
+                  onClick={() => setModalTaskId(task.id)}
+                >
+                  <span className="focus-task-no">#{getTaskIndex(task)}</span>
+                  <span className={`focus-task-priority priority-${priority}`}>{priorityOption.label}</span>
+                  <span className="focus-task-name">{task.name}</span>
+                  <span className="focus-task-meta">{primaryTag === UNTAGGED_KEY ? 'タグなし' : `#${primaryTag}`}</span>
+                  <span className="focus-task-due">{task.end}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </aside>
+
+      {isAiInboxOpen && (
+        <div className="modal-overlay" onClick={closeAiInbox}>
+          <section className="task-modal ai-modal" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <h2>AI Inbox</h2>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="modal-copy"
+                  onClick={createTasksFromAiDrafts}
+                  disabled={aiDrafts.length === 0 || isAiBusy}
+                >
+                  作成
+                </button>
+                <button type="button" className="modal-close" onClick={closeAiInbox} disabled={isAiBusy}>閉じる</button>
+              </div>
+            </header>
+            <div className="ai-inbox-layout">
+              <label className="ai-inbox-input">
+                <span>自然文のタスクメモ</span>
+                <textarea
+                  value={aiInput}
+                  onChange={(event) => setAiInput(event.target.value)}
+                  placeholder="今日やること、気になっていること、期限がある作業をそのまま書いてください。"
+                  rows={7}
+                />
+              </label>
+              <div className="ai-inbox-actions">
+                <button
+                  type="button"
+                  className="task-add-btn"
+                  onClick={handleGenerateAiDrafts}
+                  disabled={isAiBusy}
+                >
+                  {isAiBusy ? '考えています...' : '候補を生成'}
+                </button>
+                <span>{aiConnectionLabel}</span>
+              </div>
+              {aiError && <div className="settings-error">{aiError}</div>}
+              <div className="ai-draft-list">
+                {aiDrafts.length === 0 && (
+                  <div className="settings-empty">保存前のAI候補がここに表示されます。</div>
+                )}
+                {aiDrafts.map((draft) => (
+                  <div className={`ai-draft-row ${draft.selected ? 'is-selected' : ''}`} key={draft.draftId}>
+                    <label className="ai-draft-check">
+                      <input
+                        type="checkbox"
+                        checked={draft.selected}
+                        onChange={(event) => updateAiDraft(draft.draftId, { selected: event.target.checked })}
+                      />
+                    </label>
+                    <input
+                      type="text"
+                      value={draft.name}
+                      onChange={(event) => updateAiDraft(draft.draftId, { name: event.target.value })}
+                      aria-label="タスク名"
+                    />
+                    <input
+                      type="date"
+                      value={draft.start}
+                      onChange={(event) => updateAiDraft(draft.draftId, { start: event.target.value })}
+                      aria-label="開始日"
+                    />
+                    <input
+                      type="date"
+                      value={draft.end}
+                      onChange={(event) => updateAiDraft(draft.draftId, { end: event.target.value })}
+                      aria-label="期限日"
+                    />
+                    <select
+                      value={draft.status}
+                      onChange={(event) => updateAiDraft(draft.draftId, { status: event.target.value })}
+                      aria-label="ステータス"
+                    >
+                      {statusOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={normalizePriority(draft.priority)}
+                      onChange={(event) => updateAiDraft(draft.draftId, { priority: event.target.value })}
+                      aria-label="優先度"
+                    >
+                      {PRIORITY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={normalizeTags(draft.tags).map((tag) => `#${tag}`).join(' ')}
+                      onChange={(event) => updateAiDraft(draft.draftId, { tags: parseTagsInput(event.target.value) })}
+                      aria-label="タグ"
+                      placeholder="#tag/path"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
       {modalTask && (
         <div className="modal-overlay" onClick={closeModal}>
           <section className="task-modal" onClick={(event) => event.stopPropagation()}>
             <header>
-              <h2>Task #{getTaskIndex(modalTask)} Detail</h2>
+              <h2>タスク #{getTaskIndex(modalTask)} 詳細</h2>
               <div className="modal-actions">
                 <button
                   type="button"
                   className="modal-copy"
                   onClick={() => duplicateTask(modalTask.id)}
                 >
-                  Copy
+                  コピー
+                </button>
+                <button
+                  type="button"
+                  className="modal-google"
+                  onClick={() => openTaskInGoogleCalendar(modalTask.id)}
+                >
+                  Googleカレンダーで開く
                 </button>
                 <button
                   type="button"
@@ -3829,29 +4755,15 @@ function App() {
                     setModalTaskId(null);
                   }}
                 >
-                  Delete
+                  削除
                 </button>
-                <button type="button" className="modal-close" onClick={closeModal}>Close</button>
+                <button type="button" className="modal-close" onClick={closeModal}>閉じる</button>
               </div>
             </header>
 
             <div className="modal-grid">
-              <datalist id="tag-suggestions">
-                {tagPaths
-                  .filter((tagPath) => tagPath !== UNTAGGED_KEY)
-                  .map((tagPath) => (
-                    <option key={tagPath} value={`#${tagPath}`} />
-                  ))}
-              </datalist>
-              <datalist id="dependency-suggestions">
-                {tasks
-                  .filter((task) => task.id !== modalTask.id)
-                  .map((task) => (
-                    <option key={task.id} value={String(task.id)} label={`#${getTaskIndex(task)} ${task.name}`} />
-                  ))}
-              </datalist>
               <label className="modal-field-name">
-                <span>Name</span>
+                <span>タスク名</span>
                 <input
                   type="text"
                   value={modalTask.name}
@@ -3860,7 +4772,7 @@ function App() {
               </label>
 
               <label className="modal-field-tags">
-                <span>Tags</span>
+                <span>タグ</span>
                 <div className="tag-chip-editor">
                   {normalizeTags(modalTask.tags).map((tag) => {
                     const palette = getTagPalette(tag, tagColors);
@@ -3877,7 +4789,7 @@ function App() {
                         <span className="tag-chip-label">#{tag}</span>
                         <button
                           type="button"
-                          aria-label={`Remove #${tag}`}
+                          aria-label={`#${tag} を削除`}
                           onClick={() => removeModalTag(tag)}
                         >
                           ×
@@ -3887,9 +4799,8 @@ function App() {
                   })}
                   <input
                     type="text"
-                    placeholder={normalizeTags(modalTask.tags).length === 0 ? '#tag/path' : 'Add tag'}
+                    placeholder={normalizeTags(modalTask.tags).length === 0 ? '#tag/path' : 'タグを追加'}
                     value={modalTagDraft}
-                    list="tag-suggestions"
                     onChange={(event) => {
                       setModalTagDraft(event.target.value);
                     }}
@@ -3907,6 +4818,22 @@ function App() {
                     }}
                     onBlur={commitTagDraft}
                   />
+                  {modalTagSuggestionOptions.length > 0 && (
+                    <div className="modal-suggestion-list modal-tag-suggestions">
+                      {modalTagSuggestionOptions.map((tagPath) => (
+                        <button
+                          type="button"
+                          key={tagPath}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            commitTagValue(`#${tagPath}`);
+                          }}
+                        >
+                          #{tagPath}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </label>
 
@@ -3921,7 +4848,7 @@ function App() {
               </label>
 
               <label className="modal-field-date modal-field-start">
-                <span>Start</span>
+                <span>開始日</span>
                 <input
                   type="date"
                   value={modalTask.start}
@@ -3930,7 +4857,7 @@ function App() {
               </label>
 
               <label className="modal-field-date modal-field-due">
-                <span>Due</span>
+                <span>期限日</span>
                 <input
                   type="date"
                   value={modalTask.end}
@@ -3939,7 +4866,7 @@ function App() {
               </label>
 
               <label className="modal-field-status">
-                <span>Status</span>
+                <span>ステータス</span>
                 <StatusDropdown
                   className="modal-status-select"
                   value={normalizeStatus(modalTask.status, modalTask.progress, statusOptions)}
@@ -3950,7 +4877,7 @@ function App() {
               </label>
 
               <label className="modal-field-progress">
-                <span>Progress (%)</span>
+                <span>進捗率 (%)</span>
                 <input
                   type="number"
                   min="0"
@@ -3961,30 +4888,63 @@ function App() {
               </label>
 
               <label className="modal-field-depends">
-                <span>Depends On</span>
+                <span>依存</span>
                 <input
                   type="text"
                   value={toDependsText(modalTask.dependsOn)}
-                  list="dependency-suggestions"
                   onChange={(event) => updateTask(modalTask.id, {
                     dependsOn: parseDependsText(event.target.value, modalTask.id)
                   })}
+                />
+                {modalDependencySuggestionOptions.length > 0 && (
+                  <div className="modal-suggestion-list modal-dependency-suggestions">
+                    {modalDependencySuggestionOptions.map((task) => {
+                      const selected = modalTask.dependsOn.includes(task.id);
+                      return (
+                        <button
+                          type="button"
+                          key={task.id}
+                          className={selected ? 'is-selected' : ''}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            addModalDependency(task.id);
+                          }}
+                        >
+                          <span>#{getTaskIndex(task)}</span>
+                          <strong>{task.name}</strong>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </label>
+
+              <label className="modal-field-priority">
+                <span>優先度</span>
+                <StatusDropdown
+                  className="modal-priority-select"
+                  value={normalizePriority(modalTask.priority)}
+                  onChange={(priority) => updateTask(modalTask.id, { priority })}
+                  statusOptions={PRIORITY_OPTIONS}
+                  statusColorMap={priorityColorMap}
+                  label="優先度"
+                  normalizer={normalizePriority}
                 />
               </label>
             </div>
 
             <div className="markdown-section">
               <div className="markdown-section-head">
-                <h3>Notes (Markdown Live)</h3>
+                <h3>メモ (Markdown Live)</h3>
                 <span className="markdown-save-preview">{modalMarkdownPath}</span>
               </div>
-              <Suspense fallback={<div className="live-md-loading">Loading editor...</div>}>
+              <Suspense fallback={<div className="live-md-loading">エディタを読み込み中...</div>}>
                 <LiveMarkdownEditor
                   ref={noteEditorRef}
                   editorKey={`note-${modalTask.id}`}
                   markdown={modalTask.markdown}
                   onChange={(value) => updateTask(modalTask.id, { markdown: value })}
-                  placeholder="Type task notes with markdown..."
+                  placeholder="Markdownでタスクメモを入力..."
                   markdownShortcuts={settings.markdownShortcuts}
                 />
               </Suspense>
@@ -3997,16 +4957,17 @@ function App() {
         <div className="modal-overlay" onClick={closeSettings}>
           <section className="task-modal settings-modal" onClick={(event) => event.stopPropagation()}>
             <header>
-              <h2>General Settings</h2>
+              <h2>全般設定</h2>
               <div className="modal-actions">
-                <button type="button" className="modal-close" onClick={saveSettings}>Save</button>
-                <button type="button" className="modal-delete" onClick={closeSettings}>Cancel</button>
+                <button type="button" className="modal-close" onClick={saveSettings}>保存</button>
+                <button type="button" className="modal-delete" onClick={closeSettings}>キャンセル</button>
               </div>
             </header>
-            {renderSettingsSection('general', 'General', (
-              <div className="settings-grid">
+            {settingsError && <div className="settings-error settings-wide-error">{settingsError}</div>}
+            {renderSettingsSection('general', '全般', (
+              <div className="settings-grid settings-grid-three">
                 <label>
-                  <span>Index Digits</span>
+                  <span>インデックス桁数</span>
                   <input
                     type="number"
                     min="1"
@@ -4016,7 +4977,7 @@ function App() {
                   />
                 </label>
                 <label>
-                  <span>Next Index</span>
+                  <span>次のインデックス</span>
                   <input
                     type="number"
                     min="1"
@@ -4024,8 +4985,18 @@ function App() {
                     onChange={(event) => setSettingsDraft((prev) => ({ ...prev, nextTaskIndex: event.target.value }))}
                   />
                 </label>
+                <label>
+                  <span>次やるタスク表示数</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={settingsDraft.focusTaskLimit ?? DEFAULT_FOCUS_TASK_LIMIT}
+                    onChange={(event) => setSettingsDraft((prev) => ({ ...prev, focusTaskLimit: event.target.value }))}
+                  />
+                </label>
                 <label className="settings-wide">
-                  <span>File Name Rule</span>
+                  <span>ファイル名ルール</span>
                   <input
                     type="text"
                     value={settingsDraft.fileNamePattern}
@@ -4036,14 +5007,155 @@ function App() {
               </div>
             ))}
 
-            {renderSettingsSection('statuses', 'Statuses', (
+            {renderSettingsSection('ai', 'AI', (
+              <div className="settings-grid">
+                <label>
+                  <span>プロバイダー</span>
+                  <select
+                    value={draftAiSettings.provider}
+                    onChange={(event) => {
+                      const provider = getAiProvider(event.target.value);
+                      setSettingsDraft((prev) => ({
+                        ...prev,
+                        ai: {
+                          ...normalizeAiSettings(prev.ai),
+                          provider: provider.value,
+                          model: provider.defaultModel,
+                          endpoint: provider.value === 'openai-compatible' ? normalizeAiSettings(prev.ai).endpoint : ''
+                        }
+                      }));
+                    }}
+                  >
+                    {AI_PROVIDERS.map((provider) => (
+                      <option key={provider.value} value={provider.value}>{provider.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>モデル</span>
+                  <select
+                    value={draftAiProvider.models.includes(draftAiSettings.model) ? draftAiSettings.model : AI_MODEL_CUSTOM}
+                    onChange={(event) => {
+                      const selectedModel = event.target.value === AI_MODEL_CUSTOM
+                        ? draftAiSettings.model || draftAiProvider.defaultModel
+                        : event.target.value;
+                      setSettingsDraft((prev) => ({
+                        ...prev,
+                        ai: { ...normalizeAiSettings(prev.ai), model: selectedModel }
+                      }));
+                    }}
+                  >
+                    {draftModelOptions.map((modelName) => (
+                      <option key={modelName} value={modelName}>{modelName}</option>
+                    ))}
+                    <option value={AI_MODEL_CUSTOM}>任意入力</option>
+                  </select>
+                </label>
+                <label className="settings-wide">
+                  <span>{draftAiProvider.apiKeyLabel}</span>
+                  <input
+                    type="password"
+                    value={settingsDraft.ai?.apiKey || ''}
+                    placeholder={draftAiProvider.apiKeyPlaceholder}
+                    onChange={(event) => setSettingsDraft((prev) => ({
+                      ...prev,
+                      ai: { ...normalizeAiSettings(prev.ai), apiKey: event.target.value }
+                    }))}
+                  />
+                </label>
+                <label className="settings-wide">
+                  <span>モデルID（任意）</span>
+                  <input
+                    type="text"
+                    value={draftAiSettings.model}
+                    placeholder={draftAiProvider.defaultModel}
+                    onChange={(event) => setSettingsDraft((prev) => ({
+                      ...prev,
+                      ai: { ...normalizeAiSettings(prev.ai), model: event.target.value }
+                    }))}
+                  />
+                </label>
+                {draftAiSettings.provider === 'openai-compatible' && (
+                  <label className="settings-wide">
+                    <span>OpenAI互換エンドポイント</span>
+                    <input
+                      type="url"
+                      value={draftAiSettings.endpoint}
+                      placeholder="http://localhost:11434 または https://example.com/v1"
+                      onChange={(event) => setSettingsDraft((prev) => ({
+                        ...prev,
+                        ai: { ...normalizeAiSettings(prev.ai), endpoint: event.target.value }
+                      }))}
+                    />
+                  </label>
+                )}
+                <div className="settings-empty settings-wide">
+                  APIキーはOSの安全な保存領域に暗号化して保存します。モデルIDはAPIリクエスト上必要ですが、通常は上のプリセットを選ぶだけで利用できます。
+                </div>
+              </div>
+            ))}
+
+            {renderSettingsSection('google', 'Googleカレンダー', (
+              <div className="settings-grid settings-grid-three">
+                <label className="settings-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={normalizeGoogleSettings(settingsDraft.google).defaultAllDay}
+                    onChange={(event) => setSettingsDraft((prev) => ({
+                      ...prev,
+                      google: normalizeGoogleSettings({
+                        ...normalizeGoogleSettings(prev.google),
+                        defaultAllDay: event.target.checked
+                      })
+                    }))}
+                  />
+                  <span>既定で終日予定にする</span>
+                </label>
+                <label>
+                  <span>既定の開始時刻</span>
+                  <input
+                    type="time"
+                    value={normalizeGoogleSettings(settingsDraft.google).defaultStartTime}
+                    onChange={(event) => setSettingsDraft((prev) => ({
+                      ...prev,
+                      google: normalizeGoogleSettings({
+                        ...normalizeGoogleSettings(prev.google),
+                        defaultStartTime: event.target.value
+                      })
+                    }))}
+                  />
+                </label>
+                <label>
+                  <span>既定の所要時間（分）</span>
+                  <input
+                    type="number"
+                    min="15"
+                    max="480"
+                    step="15"
+                    value={normalizeGoogleSettings(settingsDraft.google).defaultDurationMinutes}
+                    onChange={(event) => setSettingsDraft((prev) => ({
+                      ...prev,
+                      google: normalizeGoogleSettings({
+                        ...normalizeGoogleSettings(prev.google),
+                        defaultDurationMinutes: Number(event.target.value)
+                      })
+                    }))}
+                  />
+                </label>
+                <div className="settings-empty settings-wide">
+                  タスク詳細の「Googleカレンダーで開く」は、Google Cloud設定なしでブラウザの予定作成画面を開きます。保存や通知はGoogleカレンダー側で行います。
+                </div>
+              </div>
+            ))}
+
+            {renderSettingsSection('statuses', 'ステータス', (
               <div className="status-manager-list">
                 {normalizeStatusOptions(settingsDraft.statusOptions).map((option) => (
                   <div className="status-manager-row" key={option.value}>
                     <input
                       type="color"
                       value={option.color}
-                      aria-label={`${option.label} color`}
+                      aria-label={`${option.label} の色`}
                       onChange={(event) => updateStatusDraft(option.value, { color: event.target.value })}
                     />
                     <input
@@ -4058,19 +5170,19 @@ function App() {
                       disabled={DEFAULT_STATUS_VALUES.includes(option.value)}
                       onClick={() => removeStatusDraft(option.value)}
                     >
-                      Remove
+                      削除
                     </button>
                   </div>
                 ))}
                 <div className="settings-actions">
                   <button type="button" className="menu-action-btn" onClick={addStatusDraft}>
-                    Add Status
+                    ステータスを追加
                   </button>
                 </div>
               </div>
             ))}
 
-            {renderSettingsSection('shortcuts', 'Markdown Shortcuts', (
+            {renderSettingsSection('shortcuts', 'Markdownショートカット', (
               <div className="shortcut-grid">
                 {Object.entries(MARKDOWN_SHORTCUT_ACTIONS).map(([action, config]) => (
                   <label key={action}>
@@ -4085,10 +5197,10 @@ function App() {
               </div>
             ))}
 
-            {renderSettingsSection('shortcutJson', 'Markdown Shortcuts JSON', (
+            {renderSettingsSection('shortcutJson', 'MarkdownショートカットJSON', (
               <>
                 <label className="settings-json-field">
-                  <span>Markdown Shortcuts JSON</span>
+                  <span>MarkdownショートカットJSON</span>
                   <textarea
                     value={settingsDraft.shortcutsJson}
                     spellCheck={false}
@@ -4100,14 +5212,14 @@ function App() {
                 </label>
                 <div className="settings-actions">
                   <button type="button" className="menu-action-btn" onClick={resetShortcutDraft}>
-                    Reset Shortcuts
+                    ショートカットをリセット
                   </button>
                   {settingsError && <span className="settings-error">{settingsError}</span>}
                 </div>
               </>
             ))}
 
-            {renderSettingsSection('tags', 'Tags', (
+            {renderSettingsSection('tags', 'タグ', (
               <div className="tag-manager-list">
                 <div className="tag-manager-actions">
                   <button
@@ -4116,11 +5228,11 @@ function App() {
                     onClick={handleImportNotesFromVault}
                     disabled={!vaultPath || isVaultBusy}
                   >
-                    Import #task Notes
+                    #task ノートを取り込み
                   </button>
                 </div>
                 {tagPaths.filter((tagPath) => tagPath !== UNTAGGED_KEY).length === 0 && (
-                  <div className="settings-empty">No tags yet.</div>
+                  <div className="settings-empty">タグはまだありません。</div>
                 )}
                 {tagPaths
                   .filter((tagPath) => tagPath !== UNTAGGED_KEY)
@@ -4131,7 +5243,7 @@ function App() {
                         <input
                           type="color"
                           value={palette.baseHex}
-                          aria-label={`${tagPath} color`}
+                          aria-label={`${tagPath} の色`}
                           onChange={(event) => {
                             const nextColor = normalizeHexColor(event.target.value);
                             if (nextColor) {
@@ -4149,14 +5261,14 @@ function App() {
                           className="menu-action-btn"
                           onClick={() => renameTagPath(tagPath, tagRenameDrafts[tagPath] ?? tagPath)}
                         >
-                          Rename
+                          名前変更
                         </button>
                         <button
                           type="button"
                           className="menu-action-btn danger"
                           onClick={() => deleteTagPath(tagPath)}
                         >
-                          Remove
+                          削除
                         </button>
                       </div>
                     );
@@ -4164,23 +5276,23 @@ function App() {
               </div>
             ))}
 
-            {renderSettingsSection('vaultLog', 'Vault Sync Log', (
+            {renderSettingsSection('vaultLog', 'Vault同期ログ', (
               <div className="vault-log-list">
-                {vaultLog.length === 0 && <div className="settings-empty">No sync log yet.</div>}
+                {vaultLog.length === 0 && <div className="settings-empty">同期ログはまだありません。</div>}
                 {vaultLog.map((entry, index) => (
                   <div className="vault-log-row" key={`${entry.timestamp}-${index}`}>
                     <span>{entry.timestamp}</span>
                     <strong>{entry.message}</strong>
                   </div>
                 ))}
-                <div className="settings-empty">Full log: .log/vault_log.log</div>
+                <div className="settings-empty">全ログ: .log/vault_log.log</div>
               </div>
             ))}
 
             <section className="settings-danger-zone">
               <div>
-                <h3>Danger Zone</h3>
-                <p>Clear Tasks deletes all tasks from this app. Vault auto-sync may also reflect the empty task list.</p>
+                <h3>危険な操作</h3>
+                <p>タスク全削除は、このアプリ内のすべてのタスクを削除します。Vaultの自動同期にも空のタスクリストが反映される場合があります。</p>
               </div>
               <button
                 type="button"
@@ -4188,7 +5300,7 @@ function App() {
                 onClick={handleClearAllTasks}
                 disabled={isVaultBusy}
               >
-                Clear Tasks
+                タスク全削除
               </button>
             </section>
           </section>
