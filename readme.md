@@ -1,4 +1,4 @@
-# Tasklane (Electron + React)
+# Tasklane
 
 タスク一覧とインタラクティブなガントチャートを備えたデスクトップ向けタスク管理ツールです。
 
