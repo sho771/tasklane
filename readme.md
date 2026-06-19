@@ -2,8 +2,6 @@
 
 タスク一覧とインタラクティブなガントチャートを備えたデスクトップ向けタスク管理ツールです。
 
-この README は日本語で管理します。今後、仕様や手順を追記する場合も日本語で記載してください。
-
 ## 実装済みの内容
 
 - 左ペインにタスク一覧、右ペインにガントチャートを表示します。
@@ -261,44 +259,3 @@ Markdown 読み込み時は UTF-8 に加えて、日本語環境で使われる 
 - Vite
 - CodeMirror
 - SVG オーバーレイによる依存関係線と進捗線の描画
-
-## 開発環境での起動
-
-```bash
-npm install
-npm run dev
-```
-
-- Vite 開発サーバーが `http://127.0.0.1:5173` で起動します。
-- Electron が自動的に起動し、React アプリを読み込みます。
-
-## ビルド
-
-```bash
-npm run build
-```
-
-## ビルド済みファイルからデスクトップアプリを起動
-
-```bash
-npm run start
-```
-
-## Windows 向けビルドの作成
-
-```bash
-npm run build:win
-```
-
-portable 版と zip 版をまとめて作成します。起動速度を優先する場合は、zip 版を展開して `Tasklane.exe` を起動してください。
-
-生成物は `release/` 配下に出力されます。
-
-## 補足
-
-- タスクデータは renderer 側の `localStorage` に保存されます。
-- Vault パス、左右ペイン幅、タグ色、テーマ設定も `localStorage` に保存されます。
-- AI APIキーは `localStorage` には保存せず、Electronの `safeStorage` で暗号化した専用ファイルに保存します。
-- Vault 連携は Markdown ファイルを介して行います。
-- Vault 選択中はタスク編集時の自動保存を行います。
-- README は日本語で管理します。今後追記する場合も日本語で記載してください。
