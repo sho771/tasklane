@@ -30,7 +30,7 @@ class RootErrorBoundary extends React.Component {
     if (this.state.error) {
       return (
         <div className="app-error-screen">
-          <h1>Tasklane Failed To Render</h1>
+          <h1>Tasklane の表示に失敗しました</h1>
           <pre>{this.state.error.stack || this.state.error.message || String(this.state.error)}</pre>
         </div>
       );

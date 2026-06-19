@@ -1,9 +1,49 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, shell } = require('electron');
 const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
 
 let mainLogPath = '';
+
+function getSecureSettingsPath() {
+  return path.join(app.getPath('userData'), 'secure-settings.json');
+}
+
+async function readSecureSettings() {
+  try {
+    const raw = await fs.readFile(getSecureSettingsPath(), 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      return {};
+    }
+    throw error;
+  }
+}
+
+async function writeSecureSettings(settings) {
+  const filePath = getSecureSettingsPath();
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify(settings, null, 2), 'utf8');
+}
+
+function encryptSecret(value) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('安全な保存領域を利用できません');
+  }
+  return safeStorage.encryptString(String(value || '')).toString('base64');
+}
+
+function decryptSecret(value) {
+  if (!value) {
+    return '';
+  }
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('安全な保存領域を利用できません');
+  }
+  return safeStorage.decryptString(Buffer.from(String(value), 'base64'));
+}
 
 function formatError(error) {
   if (!error) {
@@ -228,7 +268,7 @@ async function removeEmptyParentDirectories(rootDir, startPath) {
 
 ipcMain.handle('vault:select-folder', async () => {
   const result = await dialog.showOpenDialog(getWindowForDialog(), {
-    title: 'Select Obsidian Vault Folder',
+    title: 'Obsidian Vaultフォルダを選択',
     properties: ['openDirectory', 'createDirectory']
   });
 
@@ -247,13 +287,13 @@ ipcMain.handle('vault:list-markdown', async (_event, payload) => {
   const tag = typeof request.tag === 'string' ? request.tag.trim() : '';
 
   if (typeof vaultPath !== 'string' || !vaultPath.trim()) {
-    throw new Error('vaultPath is required');
+    throw new Error('vaultPathが必要です');
   }
 
   const resolvedVault = path.resolve(vaultPath);
   const stat = await fs.stat(resolvedVault);
   if (!stat.isDirectory()) {
-    throw new Error('vaultPath is not a directory');
+    throw new Error('vaultPathはディレクトリではありません');
   }
 
   const tagRegex = tag ? buildTagRegex(tag) : null;
@@ -266,7 +306,7 @@ ipcMain.handle('vault:select-markdown-file', async (_event, payload) => {
   const vaultPath = typeof request.vaultPath === 'string' ? request.vaultPath.trim() : '';
   const defaultPath = vaultPath || undefined;
   const result = await dialog.showOpenDialog(getWindowForDialog(), {
-    title: 'Select Markdown File',
+    title: 'Markdownファイルを選択',
     defaultPath,
     properties: ['openFile'],
     filters: [
@@ -304,7 +344,7 @@ ipcMain.handle('vault:write-markdown-files', async (_event, payload) => {
   const files = payload && Array.isArray(payload.files) ? payload.files : [];
 
   if (!vaultPath.trim()) {
-    throw new Error('vaultPath is required');
+    throw new Error('vaultPathが必要です');
   }
 
   const resolvedVault = path.resolve(vaultPath);
@@ -333,7 +373,7 @@ ipcMain.handle('vault:sync-markdown-files', async (_event, payload) => {
   const deleteStaleManaged = Boolean(payload && payload.deleteStaleManaged);
 
   if (!vaultPath.trim()) {
-    throw new Error('vaultPath is required');
+    throw new Error('vaultPathが必要です');
   }
 
   const resolvedVault = path.resolve(vaultPath);
@@ -377,7 +417,7 @@ ipcMain.handle('vault:append-log', async (_event, payload) => {
   const entry = payload && typeof payload.entry === 'string' ? payload.entry : '';
 
   if (!vaultPath.trim()) {
-    throw new Error('vaultPath is required');
+    throw new Error('vaultPathが必要です');
   }
   if (!entry.trim()) {
     return { written: false };
@@ -389,6 +429,42 @@ ipcMain.handle('vault:append-log', async (_event, payload) => {
   await fs.mkdir(path.dirname(logPath), { recursive: true });
   await fs.appendFile(logPath, `${entry.replace(/[\r\n]+/g, ' ')}\n`, 'utf8');
   return { written: true, relativePath: toPosixPath(path.join('.log', 'vault_log.log')) };
+});
+
+ipcMain.handle('secure-ai-key:get', async () => {
+  const settings = await readSecureSettings();
+  return {
+    apiKey: decryptSecret(settings.aiApiKey || '')
+  };
+});
+
+ipcMain.handle('secure-ai-key:set', async (_event, payload) => {
+  const apiKey = payload && typeof payload.apiKey === 'string' ? payload.apiKey.trim() : '';
+  const settings = await readSecureSettings();
+  if (!apiKey) {
+    delete settings.aiApiKey;
+  } else {
+    settings.aiApiKey = encryptSecret(apiKey);
+    settings.updatedAt = new Date().toISOString();
+  }
+  await writeSecureSettings(settings);
+  return { saved: Boolean(apiKey) };
+});
+
+ipcMain.handle('secure-ai-key:clear', async () => {
+  const settings = await readSecureSettings();
+  delete settings.aiApiKey;
+  await writeSecureSettings(settings);
+  return { cleared: true };
+});
+
+ipcMain.handle('app:open-external', async (_event, payload) => {
+  const url = payload && typeof payload.url === 'string' ? payload.url.trim() : '';
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error('外部URLを開けません');
+  }
+  await shell.openExternal(url);
+  return { opened: true };
 });
 
 ipcMain.on('renderer:log', (_event, payload) => {
