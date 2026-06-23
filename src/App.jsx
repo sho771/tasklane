@@ -758,6 +758,18 @@ function parseDependsText(raw, taskId) {
   )];
 }
 
+function isDependsIdInput(raw) {
+  return /^\s*(?:\d+\s*(?:,\s*\d+\s*)*)?$/u.test(String(raw || ''));
+}
+
+function getDependencySearchQuery(raw) {
+  if (isDependsIdInput(raw)) {
+    return '';
+  }
+  const parts = String(raw || '').split(',');
+  return parts[parts.length - 1].trim().toLowerCase();
+}
+
 function clampLeftWidth(rawWidth, containerWidth) {
   const minLeft = 320;
   const minRight = 480;
@@ -1331,47 +1343,82 @@ function normalizeOpenAiCompatibleEndpoint(endpoint) {
   return `${base}/v1/chat/completions`;
 }
 
+function waitForRetry(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isTemporaryAiDemandError(status, message) {
+  const text = String(message || '').toLowerCase();
+  return status === 429
+    || status === 503
+    || text.includes('high demand')
+    || text.includes('try again later')
+    || text.includes('temporarily')
+    || text.includes('overloaded');
+}
+
+function getGoogleAiDemandMessage(model) {
+  return `Google AI Studio のモデル「${model}」が現在混み合っています。少し待って再実行するか、Settings の AI で別の Gemini モデルに切り替えてください。`;
+}
+
 async function requestGoogleAi({ apiKey, model, prompt }) {
   const safeApiKey = String(apiKey || '').trim();
   const safeModel = String(model || getAiProvider('google').defaultModel).trim().replace(/^models\//u, '') || getAiProvider('google').defaultModel;
   if (!safeApiKey) {
     throw new Error('Google AI Studio のAPIキーが設定されていません。');
   }
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(safeModel)}:generateContent`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': safeApiKey
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: prompt }]
-        }
-      ],
-      generationConfig: {
-        responseMimeType: 'application/json'
+  const body = JSON.stringify({
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: prompt }]
       }
-    })
+    ],
+    generationConfig: {
+      responseMimeType: 'application/json'
+    }
   });
+  let lastStatus = 0;
+  let lastMessage = '';
+  const maxAttempts = 3;
 
-  if (!response.ok) {
-    let message = `Google AI Studio API request failed (${response.status}).`;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(safeModel)}:generateContent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': safeApiKey
+      },
+      body
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return data?.candidates?.[0]?.content?.parts
+        ?.map((part) => part.text || '')
+        .join('\n')
+        .trim();
+    }
+
+    lastStatus = response.status;
+    lastMessage = `Google AI Studio API request failed (${response.status}).`;
     try {
       const data = await response.json();
-      message = data?.error?.message || message;
+      lastMessage = data?.error?.message || lastMessage;
     } catch {
       // Keep the status-based message.
     }
-    throw new Error(message);
+
+    if (!isTemporaryAiDemandError(lastStatus, lastMessage) || attempt === maxAttempts) {
+      break;
+    }
+    await waitForRetry(800 * attempt);
   }
 
-  const data = await response.json();
-  return data?.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text || '')
-    .join('\n')
-    .trim();
+  if (isTemporaryAiDemandError(lastStatus, lastMessage)) {
+    throw new Error(getGoogleAiDemandMessage(safeModel));
+  }
+  throw new Error(lastMessage);
 }
 
 async function requestOpenAi({ apiKey, model, prompt }) {
@@ -3604,6 +3651,7 @@ function App() {
   const modalTask = tasks.find((task) => task.id === modalTaskId) || null;
   const modalMarkdownPath = modalTask ? getTaskMarkdownRelativePath(modalTask, settings) : '';
   const [modalTagDraft, setModalTagDraft] = useState('');
+  const [modalDependencyDraft, setModalDependencyDraft] = useState('');
   const noteEditorRef = useRef(null);
   const modalTagSuggestionOptions = useMemo(() => {
     if (!modalTask) {
@@ -3616,16 +3664,32 @@ function App() {
       .filter((tagPath) => !query || tagPath.toLowerCase().includes(query.toLowerCase()))
       .sort((a, b) => a.localeCompare(b, 'ja'));
   }, [modalTask, modalTagDraft, tagPaths]);
-  const modalDependencySuggestionOptions = useMemo(() => (
-    modalTask
-      ? tasks
-        .filter((task) => task.id !== modalTask.id)
-        .sort((a, b) => getTaskIndex(a) - getTaskIndex(b))
-      : []
-  ), [modalTask, tasks]);
+  const modalDependencySuggestionOptions = useMemo(() => {
+    if (!modalTask) {
+      return [];
+    }
+    const query = getDependencySearchQuery(modalDependencyDraft);
+    return tasks
+      .filter((task) => task.id !== modalTask.id)
+      .filter((task) => {
+        if (!query) {
+          return true;
+        }
+        const searchable = [
+          String(task.id),
+          String(getTaskIndex(task)),
+          task.uid || '',
+          task.name || '',
+          ...normalizeTags(task.tags).map((tag) => `#${tag}`)
+        ].join(' ').toLowerCase();
+        return searchable.includes(query);
+      })
+      .sort((a, b) => getTaskIndex(a) - getTaskIndex(b));
+  }, [modalDependencyDraft, modalTask, tasks]);
 
   useEffect(() => {
     setModalTagDraft('');
+    setModalDependencyDraft(modalTask ? toDependsText(modalTask.dependsOn) : '');
   }, [modalTaskId]);
 
   const commitTagDraft = () => {
@@ -3655,9 +3719,11 @@ function App() {
     if (!modalTask || taskId === modalTask.id) {
       return;
     }
+    const nextDependsOn = [...new Set([...modalTask.dependsOn, taskId])];
     updateTask(modalTask.id, {
-      dependsOn: [...new Set([...modalTask.dependsOn, taskId])]
+      dependsOn: nextDependsOn
     });
+    setModalDependencyDraft(toDependsText(nextDependsOn));
   };
 
   const removeModalTag = (tagToRemove) => {
@@ -4891,10 +4957,28 @@ function App() {
                 <span>依存</span>
                 <input
                   type="text"
-                  value={toDependsText(modalTask.dependsOn)}
-                  onChange={(event) => updateTask(modalTask.id, {
-                    dependsOn: parseDependsText(event.target.value, modalTask.id)
-                  })}
+                  placeholder="No / タスク名"
+                  value={modalDependencyDraft}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setModalDependencyDraft(value);
+                    if (isDependsIdInput(value)) {
+                      updateTask(modalTask.id, {
+                        dependsOn: parseDependsText(value, modalTask.id)
+                      });
+                    }
+                  }}
+                  onBlur={() => {
+                    if (!isDependsIdInput(modalDependencyDraft)) {
+                      setModalDependencyDraft(toDependsText(modalTask.dependsOn));
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !isDependsIdInput(modalDependencyDraft) && modalDependencySuggestionOptions[0]) {
+                      event.preventDefault();
+                      addModalDependency(modalDependencySuggestionOptions[0].id);
+                    }
+                  }}
                 />
                 {modalDependencySuggestionOptions.length > 0 && (
                   <div className="modal-suggestion-list modal-dependency-suggestions">
