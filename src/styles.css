@@ -145,6 +145,8 @@ body.split-dragging {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  container-name: task-panel;
+  container-type: inline-size;
 }
 
 .splitter {
@@ -538,6 +540,35 @@ body.split-dragging {
   min-height: 0;
   overflow: hidden;
   padding-top: 10px;
+}
+
+.focus-inline-panel {
+  display: none;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  padding: 10px;
+}
+
+.focus-inline-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.focus-inline-head span {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.focus-inline-head strong {
+  color: var(--ink);
+  font-size: 0.92rem;
 }
 
 .focus-tabs {
@@ -2585,6 +2616,124 @@ body.split-dragging {
 @media (max-width: 1280px) {
   .filter-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container task-panel (max-width: 560px) {
+  .panel-top {
+    height: auto;
+    min-height: var(--topbar-h);
+    justify-content: flex-start;
+  }
+
+  .toolbar-row {
+    flex-wrap: wrap;
+    align-content: flex-start;
+  }
+
+  .toolbar-right-actions {
+    margin-left: 0;
+  }
+
+  .vault-status.inline-status {
+    max-width: 100%;
+  }
+
+  .filter-row {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.16fr);
+  }
+
+  .filter-field span {
+    font-size: 0.58rem;
+  }
+
+  .filter-field select {
+    padding: 0 5px;
+    font-size: 0.68rem;
+  }
+
+  .sort-control {
+    grid-template-columns: minmax(0, 1fr) 26px;
+    gap: 3px;
+  }
+
+  .sort-direction-btn {
+    width: 26px;
+  }
+}
+
+.desktop-root.is-portrait-workspace .split-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 32%);
+  grid-template-rows: minmax(0, 47%) minmax(0, 53%);
+}
+
+.desktop-root.is-portrait-workspace .task-panel {
+  grid-column: 1;
+  grid-row: 1;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.desktop-root.is-portrait-workspace .focus-inline-panel {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-bottom: 1px solid var(--line);
+}
+
+.desktop-root.is-portrait-workspace .splitter,
+.desktop-root.is-portrait-workspace .focus-drawer,
+.desktop-root.is-portrait-workspace .focus-drawer-trigger {
+  display: none;
+}
+
+.desktop-root.is-portrait-workspace .gantt-panel {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 0;
+}
+
+.desktop-root.is-portrait-workspace .panel-top,
+.desktop-root.is-portrait-workspace .timeline-head,
+.desktop-root.is-portrait-workspace .timeline-inner {
+  height: auto;
+  min-height: 84px;
+}
+
+.desktop-root.is-portrait-workspace .filter-row {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.15fr);
+}
+
+.desktop-root.is-portrait-workspace .toolbar-row {
+  flex-wrap: wrap;
+}
+
+.desktop-root.is-portrait-workspace .toolbar-right-actions {
+  margin-left: 0;
+}
+
+@media (max-width: 760px) {
+  .desktop-root.is-portrait-workspace .split-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 38%) minmax(0, 22%) minmax(0, 40%);
+  }
+
+  .desktop-root.is-portrait-workspace .task-panel {
+    grid-column: 1;
+    grid-row: 1;
+    border-right: none;
+  }
+
+  .desktop-root.is-portrait-workspace .focus-inline-panel {
+    grid-column: 1;
+    grid-row: 2;
+    border-left: none;
+  }
+
+  .desktop-root.is-portrait-workspace .gantt-panel {
+    grid-column: 1;
+    grid-row: 3;
   }
 }
 

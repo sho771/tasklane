@@ -16,6 +16,7 @@ const LEGACY_GROUP_COLORS_KEY = 'taskkanri.desktop.groupColors.v1';
 const THEME_KEY = 'taskkanri.desktop.theme.v1';
 const SETTINGS_KEY = 'taskkanri.desktop.settings.v1';
 const SORT_KEY = 'taskkanri.desktop.sortMode.v1';
+const FILTERS_KEY = 'taskkanri.desktop.filters.v1';
 const IMPORT_TAG = '#task';
 const UNTAGGED_KEY = '__untagged__';
 const DEFAULT_FOCUS_TASK_LIMIT = 6;
@@ -82,6 +83,12 @@ const TASK_SORT_FIELDS = [
 ];
 const DEFAULT_SORT_MODE = 'tagAsc';
 const TASK_SORT_VALUES = TASK_SORT_FIELDS.flatMap((field) => [`${field.value}Asc`, `${field.value}Desc`]);
+const DEFAULT_FILTERS = {
+  status: 'all',
+  dueBy: '',
+  tag: 'all',
+  query: ''
+};
 const MARKDOWN_SHORTCUT_ACTIONS = {
   bold: { label: '太字', defaultKey: 'Mod-b', type: 'wrap', before: '**', after: '**' },
   italic: { label: '斜体', defaultKey: 'Mod-i', type: 'wrap', before: '*', after: '*' },
@@ -497,6 +504,25 @@ function loadInitialSettings() {
     return normalizeSettings(parsed || DEFAULT_SETTINGS);
   } catch {
     return normalizeSettings(DEFAULT_SETTINGS);
+  }
+}
+
+function normalizeFilters(rawFilters = {}) {
+  const raw = rawFilters && typeof rawFilters === 'object' ? rawFilters : {};
+  return {
+    status: typeof raw.status === 'string' && raw.status ? raw.status : DEFAULT_FILTERS.status,
+    dueBy: isDateKey(raw.dueBy) ? raw.dueBy : DEFAULT_FILTERS.dueBy,
+    tag: typeof raw.tag === 'string' && raw.tag ? raw.tag : DEFAULT_FILTERS.tag,
+    query: typeof raw.query === 'string' ? raw.query : DEFAULT_FILTERS.query
+  };
+}
+
+function loadInitialFilters() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FILTERS_KEY) || 'null');
+    return normalizeFilters(parsed || DEFAULT_FILTERS);
+  } catch {
+    return { ...DEFAULT_FILTERS };
   }
 }
 
@@ -1877,7 +1903,19 @@ function selectMarkdownFileFromBrowser() {
 function App() {
   const [tasks, setTasks] = useState(() => loadInitialTasks());
   const [leftWidth, setLeftWidth] = useState(() => loadInitialSplitWidth());
-  const [isCompact, setIsCompact] = useState(() => window.innerWidth <= 980);
+  const [isCompact, setIsCompact] = useState(() => (
+    window.innerWidth <= 980
+    || (
+      window.innerWidth <= 1180
+      && window.innerHeight >= 720
+      && window.innerHeight > window.innerWidth * 0.9
+    )
+  ));
+  const [isPortraitWorkspace, setIsPortraitWorkspace] = useState(() => (
+    window.innerWidth <= 1180
+    && window.innerHeight >= 720
+    && window.innerHeight > window.innerWidth * 0.9
+  ));
   const [modalTaskId, setModalTaskId] = useState(null);
   const [vaultPath, setVaultPath] = useState(() => localStorage.getItem(VAULT_PATH_KEY) || '');
   const [vaultStatus, setVaultStatus] = useState('');
@@ -1912,12 +1950,7 @@ function App() {
   const [tagColors, setTagColors] = useState(() => loadInitialTagColors());
   const [tagRenameDrafts, setTagRenameDrafts] = useState({});
   const [collapsedTags, setCollapsedTags] = useState({});
-  const [filters, setFilters] = useState({
-    status: 'all',
-    dueBy: '',
-    tag: 'all',
-    query: ''
-  });
+  const [filters, setFilters] = useState(() => loadInitialFilters());
 
   const idRef = useRef(tasks.reduce((max, task) => Math.max(max, task.id), 0) + 1);
   const headerScrollRef = useRef(null);
@@ -2058,6 +2091,10 @@ function App() {
   }, [sortMode]);
 
   useEffect(() => {
+    localStorage.setItem(FILTERS_KEY, JSON.stringify(normalizeFilters(filters)));
+  }, [filters]);
+
+  useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(stripSensitiveSettings(settings)));
   }, [settings]);
 
@@ -2079,7 +2116,11 @@ function App() {
 
   useEffect(() => {
     const onResize = () => {
-      const compact = window.innerWidth <= 980;
+      const portraitWorkspace = window.innerWidth <= 1180
+        && window.innerHeight >= 720
+        && window.innerHeight > window.innerWidth * 0.9;
+      const compact = window.innerWidth <= 980 || portraitWorkspace;
+      setIsPortraitWorkspace(portraitWorkspace);
       setIsCompact(compact);
 
       if (!compact && splitLayoutRef.current) {
@@ -2609,6 +2650,17 @@ function App() {
       return undefined;
     }
 
+    if (isCompact) {
+      const syncHeaderFromChart = () => {
+        headerNode.scrollLeft = chartNode.scrollLeft;
+      };
+
+      chartNode.addEventListener('scroll', syncHeaderFromChart);
+      return () => {
+        chartNode.removeEventListener('scroll', syncHeaderFromChart);
+      };
+    }
+
     const syncFromChart = () => {
       if (syncLockRef.current) {
         return;
@@ -2639,7 +2691,7 @@ function App() {
       chartNode.removeEventListener('scroll', syncFromChart);
       listNode.removeEventListener('scroll', syncFromList);
     };
-  }, []);
+  }, [isCompact]);
 
   useEffect(() => {
     if (!hasTodayInTimeline) {
@@ -3917,12 +3969,7 @@ function App() {
   };
 
   const clearFilters = () => {
-    setFilters({
-      status: 'all',
-      dueBy: '',
-      tag: 'all',
-      query: ''
-    });
+    setFilters({ ...DEFAULT_FILTERS });
     setIsSearchOpen(false);
     setIsDueOpen(false);
   };
@@ -4032,9 +4079,51 @@ function App() {
     : isAiApiKeyLoaded
       ? '設定でAIプロバイダーとAPIキーを入力してください。'
       : 'AI APIキーを読み込み中です。';
+  const focusPanelContent = (
+    <div className="focus-panel">
+      <div className="focus-tabs" role="tablist" aria-label="フォーカスタスクの分類">
+        {FOCUS_VIEW_OPTIONS.map((option) => (
+          <button
+            type="button"
+            key={option.value}
+            className={focusView === option.value ? 'is-active' : ''}
+            onClick={() => setFocusView(option.value)}
+          >
+            {option.label}
+            <span>{focusTaskGroups[option.value].length}</span>
+          </button>
+        ))}
+      </div>
+      <div className="focus-task-list">
+        {focusTaskGroups[focusView].length === 0 && (
+          <div className="focus-empty">対象タスクはありません。</div>
+        )}
+        {focusTaskGroups[focusView].map((task) => {
+          const primaryTag = getPrimaryTagPath(task);
+          const dueToday = task.end <= today;
+          const priority = normalizePriority(task.priority);
+          const priorityOption = PRIORITY_OPTIONS.find((option) => option.value === priority) || PRIORITY_OPTIONS[1];
+          return (
+            <button
+              type="button"
+              className={`focus-task ${dueToday ? 'is-urgent' : ''}`}
+              key={`focus-${focusView}-${task.id}`}
+              onClick={() => setModalTaskId(task.id)}
+            >
+              <span className="focus-task-no">#{getTaskIndex(task)}</span>
+              <span className={`focus-task-priority priority-${priority}`}>{priorityOption.label}</span>
+              <span className="focus-task-name">{task.name}</span>
+              <span className="focus-task-meta">{primaryTag === UNTAGGED_KEY ? 'タグなし' : `#${primaryTag}`}</span>
+              <span className="focus-task-due">{task.end}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   return (
-    <div className="desktop-root">
+    <div className={`desktop-root ${isPortraitWorkspace ? 'is-portrait-workspace' : ''}`}>
       <div className="split-layout" ref={splitLayoutRef} style={splitStyle}>
         <aside className="task-panel">
           <div className="panel-top">
@@ -4362,6 +4451,14 @@ function App() {
           </div>
         </aside>
 
+        <aside className="focus-inline-panel" aria-label="次やるタスク">
+          <header className="focus-inline-head">
+            <span>次やるタスク</span>
+            <strong>{FOCUS_VIEW_OPTIONS.find((option) => option.value === focusView)?.label}</strong>
+          </header>
+          {focusPanelContent}
+        </aside>
+
         <div
           className="splitter"
           role="separator"
@@ -4648,46 +4745,7 @@ function App() {
             ×
           </button>
         </header>
-        <div className="focus-panel">
-          <div className="focus-tabs" role="tablist" aria-label="フォーカスタスクの分類">
-            {FOCUS_VIEW_OPTIONS.map((option) => (
-              <button
-                type="button"
-                key={option.value}
-                className={focusView === option.value ? 'is-active' : ''}
-                onClick={() => setFocusView(option.value)}
-              >
-                {option.label}
-                <span>{focusTaskGroups[option.value].length}</span>
-              </button>
-            ))}
-          </div>
-          <div className="focus-task-list">
-            {focusTaskGroups[focusView].length === 0 && (
-              <div className="focus-empty">対象タスクはありません。</div>
-            )}
-            {focusTaskGroups[focusView].map((task) => {
-              const primaryTag = getPrimaryTagPath(task);
-              const dueToday = task.end <= today;
-              const priority = normalizePriority(task.priority);
-              const priorityOption = PRIORITY_OPTIONS.find((option) => option.value === priority) || PRIORITY_OPTIONS[1];
-              return (
-                <button
-                  type="button"
-                  className={`focus-task ${dueToday ? 'is-urgent' : ''}`}
-                  key={`focus-${focusView}-${task.id}`}
-                  onClick={() => setModalTaskId(task.id)}
-                >
-                  <span className="focus-task-no">#{getTaskIndex(task)}</span>
-                  <span className={`focus-task-priority priority-${priority}`}>{priorityOption.label}</span>
-                  <span className="focus-task-name">{task.name}</span>
-                  <span className="focus-task-meta">{primaryTag === UNTAGGED_KEY ? 'タグなし' : `#${primaryTag}`}</span>
-                  <span className="focus-task-due">{task.end}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        {focusPanelContent}
       </aside>
 
       {isAiInboxOpen && (
